@@ -83,6 +83,9 @@ typedef struct j250f_emmc {
     uint32_t frequency_hz;
     uint32_t last_interrupt;
     uint32_t last_present;
+    uint32_t last_vendor;
+    uint32_t last_dll;
+    uint16_t last_clock;
     uint8_t last_command;
     uint32_t last_r1;
     uint8_t ext_csd[512];

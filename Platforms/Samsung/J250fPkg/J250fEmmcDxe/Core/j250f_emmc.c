@@ -89,11 +89,14 @@ int j250f_service_power(j250f_emmc *h)
     }
     w32(h,J250F_REGION_CORE,CORE_PWR_CTL,ack);
     sync_io(h);
-    if (status&(POWER_IO_HIGH|POWER_IO_LOW)) {
+    if (result==J250F_OK && h->rails_on &&
+        (status&(POWER_BUS_ON|POWER_IO_HIGH|POWER_IO_LOW))) {
         uint32_t vendor=r32(h,J250F_REGION_HC,HC_VENDOR_SPEC);
-        /* A 1.8V-only board uses the PAD_PWR_SWITCH bit as in Samsung. */
-        if (result==J250F_OK)
-            w32(h,J250F_REGION_HC,HC_VENDOR_SPEC,vendor|VENDOR_PAD_SWITCH);
+        /* Samsung BUS_ON sets io_level=REQ_IO_HIGH. On this fixed-1.8V
+         * board the pad selector must also be set without a separate IO IRQ.
+         * Do not touch it if regulators/pins failed or logical rails are off. */
+        w32(h,J250F_REGION_HC,HC_VENDOR_SPEC,
+            vendor|VENDOR_PAD_SWITCH_EN|VENDOR_PAD_SWITCH);
         sync_io(h);
     }
     return result;
@@ -110,6 +113,24 @@ static int poll_mask(j250f_emmc *h,j250f_region region,uint32_t offset,
         pause_us(h,10);
     }
     return J250F_E_TIMEOUT;
+}
+
+/* Samsung sdhci_msm_set_clock() selects CORE_HC_MCLK_SEL_DFLT (2 << 8)
+ * outside HS400. Repair an inherited/reset selector only after the command
+ * line is idle, and preserve pad-voltage, DLL, and unrelated vendor bits. */
+static int ensure_legacy_mclk(j250f_emmc *h)
+{
+    uint32_t vendor=r32(h,J250F_REGION_HC,HC_VENDOR_SPEC);
+    uint32_t desired=(vendor&~(VENDOR_MCLK_MASK|2u))|VENDOR_MCLK_DEFAULT;
+
+    if (desired!=vendor) {
+        w32(h,J250F_REGION_HC,HC_VENDOR_SPEC,desired);
+        sync_io(h);
+    }
+    if ((r32(h,J250F_REGION_HC,HC_VENDOR_SPEC)&VENDOR_MCLK_MASK)
+        !=VENDOR_MCLK_DEFAULT)
+        return J250F_E_IO;
+    return J250F_OK;
 }
 
 int j250f_set_frequency(j250f_emmc *h,uint32_t hz)
@@ -149,7 +170,7 @@ int j250f_set_frequency(j250f_emmc *h,uint32_t hz)
     w16(h,J250F_REGION_HC,HC_CLOCK,CLOCK_INT_EN|CLOCK_CARD_EN);
     sync_io(h);
     h->frequency_hz=hz;
-    return J250F_OK;
+    return ensure_legacy_mclk(h);
 }
 
 static int reset(j250f_emmc *h,uint8_t bits)
@@ -179,6 +200,12 @@ static int command(j250f_emmc *h,unsigned cmd,uint32_t arg,unsigned response,
     if (data_len || response==RSP_48_BUSY) mask|=DATA_INHIBIT;
     rc=poll_mask(h,J250F_REGION_HC,HC_PRESENT,mask,0,1000000);
     if (rc) return rc;
+    /* A reset/feedback-clock path may have cleared the Qualcomm MCLK mux.
+     * Check it while idle before issuing any MMC command. */
+    if (h->frequency_hz && h->frequency_hz<=50000000u) {
+        rc=ensure_legacy_mclk(h);
+        if (rc) return rc;
+    }
     /* Remove stale command and data interrupts before issuing a command. */
     w32(h,J250F_REGION_HC,HC_INTERRUPT,INT_ALL);
     if (data_len) {
@@ -219,6 +246,9 @@ static int command(j250f_emmc *h,unsigned cmd,uint32_t arg,unsigned response,
     }
     h->last_interrupt=intr;
     h->last_present=r32(h,J250F_REGION_HC,HC_PRESENT);
+    h->last_vendor=r32(h,J250F_REGION_HC,HC_VENDOR_SPEC);
+    h->last_dll=r32(h,J250F_REGION_HC,HC_DLL_CONFIG);
+    h->last_clock=h->io.read16(h->context,J250F_REGION_HC,HC_CLOCK);
     if (intr&INT_ERROR_MASK) {
         w32(h,J250F_REGION_HC,HC_INTERRUPT,intr);
         (void)reset(h,RESET_CMD|(data_len?RESET_DAT:0));

@@ -78,3 +78,26 @@ Samsung `sdhci_msm_set_uhs_signaling()` explicitly asserts CORE_DLL_CONFIG
 DLL_RST (bit30) then DLL_PDN (bit29) and selects a low-speed HOST_CONTROL2
 mode below 100MHz. This is now done with the card clock stopped, preserving
 unrelated bits. CRC checks remain enabled. See reported hardware results.
+
+## Fixed 1.8V pad selection on BUS_ON
+
+The J250F fixed-1.8V pad selector is now applied after a successful BUS_ON as
+well as IO_HIGH/IO_LOW, while logical rails are on. Samsung's BUS_ON handler
+also sets io_level=REQ_IO_HIGH. Both PAD_SWITCH_EN (bit15) and PAD_SWITCH
+(bit16) are ORed into the vendor register; unrelated bits are preserved.
+Regulator/pin failures and BUS_OFF cannot enter that update. No RPM/SMEM/DLL
+code is replaced by an older source package. Failure snapshots now include
+VENDOR, DLL and CLK values captured before command reset.
+
+BUS_ON-only, regulator failure, pin failure, BUS_OFF and CRC rejection tests
+pass in simulation. Physical success after this change is not yet confirmed.
+
+## Legacy MCLK readback guard
+
+The latest user-reported CMD1 values included `VENDOR=0x0001801C`, whose
+MCLK selector field `[9:8]` is zero, and `CLK=0x0007`. The core now restores
+and verifies Qualcomm's default legacy MCLK selection (`2 << 8`) after clock
+setup and again while the host is idle immediately before commands at or below
+50MHz. It preserves the pad-voltage and DLL fields and aborts without sending
+a command if the selector fails readback. This correction has not yet been
+tested on the phone; it is not evidence that eMMC recognition now succeeds.

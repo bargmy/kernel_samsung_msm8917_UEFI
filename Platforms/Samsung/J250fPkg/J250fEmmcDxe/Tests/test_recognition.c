@@ -38,6 +38,21 @@ int main(void) {
  ASSERT(j250f_init_host(&h,&o,&e)==J250F_OK);
  ASSERT(j250f_init_card(&h)==J250F_E_IO && !h.card_ready);
  ASSERT(h.last_command==2 && h.last_interrupt==0x28000);
+ setup(&e);o=ops;ASSERT(j250f_init_host(&h,&o,&e)==J250F_OK);
+ wr32(e.hc+0x10c,0x0a1c);e.core[0xdc]=2;
+ ASSERT(j250f_service_power(&h)==J250F_OK);
+ ASSERT((raw32(e.hc+0x10c)&0x18000)==0x18000);
+ ASSERT((raw32(e.hc+0x10c)&~0x18000u)==0x0a1c);
+ ASSERT(e.last_pwr_ack==1); // BUS_ON-only, no separate IO event
+ wr32(e.hc+0x10c,0x0a1c);e.core[0xdc]=2;e.fail_rails=1;
+ ASSERT(j250f_service_power(&h)==J250F_E_POWER);
+ ASSERT(raw32(e.hc+0x10c)==0x0a1c && e.last_pwr_ack==2);
+ e.fail_rails=0;e.fail_pins=1;e.core[0xdc]=2;
+ ASSERT(j250f_service_power(&h)==J250F_E_POWER);
+ ASSERT(raw32(e.hc+0x10c)==0x0a1c && e.last_pwr_ack==2);
+ e.fail_pins=0;e.core[0xdc]=1;ASSERT(j250f_service_power(&h)==J250F_OK);
+ ASSERT(!h.rails_on && raw32(e.hc+0x10c)==0x0a1c);
+ puts("PASS: BUS_ON-only selects 1.8V pads; regulator/pin failures and BUS_OFF do not falsely select pads");
  puts("PASS: Samsung low-speed DLL reset/power-down and feedback mode; genuine CMD2 CRC errors remain fatal");
  puts("PASS: 400kHz/one-bit recognition/read path, no CMD6 or write path, partition rejection, CMD0 timeout abort");
  return 0;

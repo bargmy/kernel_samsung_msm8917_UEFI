@@ -145,11 +145,12 @@ EFI_STATUS EFIAPI J250fLkBoardOpen(OUT J250F_LK_DISK *Disk) {
   Result=j250f_init_host(&mHost,&mOps,NULL);
   if (Result==J250F_OK) Result=j250f_init_card(&mHost);
   if (Result!=J250F_OK) {
-    CHAR8 Text[256];
+    CHAR8 Text[384];
     UINTN Len;
     Len=AsciiSPrint(Text,sizeof(Text),
-      "Card init result=%d CMD=%u IRQ=%08x R1=%08x\r\nSTATE_BEFORE_RESET=%08x\r\n",
-      Result,(UINT32)mHost.last_command,mHost.last_interrupt,mHost.last_r1,mHost.last_present);
+      "Card init result=%d CMD=%u IRQ=%08x R1=%08x\r\nSTATE_BEFORE_RESET=%08x\r\nVENDOR=%08x DLL=%08x CLK=%04x\r\n",
+      Result,(UINT32)mHost.last_command,mHost.last_interrupt,mHost.last_r1,mHost.last_present,
+      mHost.last_vendor,mHost.last_dll,(UINT32)mHost.last_clock);
     SerialPortWrite((UINT8*)Text,Len);
     DEBUG((DEBUG_ERROR,"J250F eMMC: CMD init failed=%d IRQ=0x%x R1=0x%x\n",
       Result,mHost.last_interrupt,mHost.last_r1));
