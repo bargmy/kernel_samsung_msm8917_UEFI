@@ -305,8 +305,8 @@ STATIC EFI_STATUS ReadOne (UINT32 Lba, OUT UINT8 *Out) {
   return Send (17, Lba, TRUE, NULL, Out);
 }
 STATIC EFI_STATUS EFIAPI Reset (EFI_BLOCK_IO_PROTOCOL *This, BOOLEAN ExtendedVerification) {
-  // A reset would reconfigure card state. Fail closed.
-  return EFI_UNSUPPORTED;
+  // UEFI media-layer reset is a no-op. NEVER reset/repartition the card here.
+  return mReady ? EFI_SUCCESS : EFI_NO_MEDIA;
 }
 STATIC EFI_STATUS EFIAPI Read (
   EFI_BLOCK_IO_PROTOCOL *This, UINT32 MediaId,
