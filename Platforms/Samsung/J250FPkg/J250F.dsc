@@ -56,11 +56,15 @@
   gQcomPkgTokenSpaceGuid.PcdSmbiosSystemRetailSku|"j2y18lte"
   gQcomPkgTokenSpaceGuid.PcdSmbiosBoardModel|"j2y18lte"
 
-  # Simple FrameBuffer (Samsung 540x960 qHD display panel, 24bpp RGB888 native unpadded)
+  # Simple FrameBuffer (Samsung 540x960 qHD display panel, 24bpp RGB888 native unpadded, base 0xA800035A)
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferAddress|0x00000000A800035A
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferWidth|540
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferHeight|960
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp|24
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelsPerScanLine|540
+
+  # Suppress excessive INFO debug spam so startup banner remains visible
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80000002
 
 [Components.common]
   # Keypad Drivers

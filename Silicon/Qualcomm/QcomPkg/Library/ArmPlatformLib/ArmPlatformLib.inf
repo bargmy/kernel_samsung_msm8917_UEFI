@@ -52,6 +52,7 @@
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferHeight
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelsPerScanLine
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferAddress
   gQcomPkgTokenSpaceGuid.PcdSmbiosSystemModel
 
 [Ppis]

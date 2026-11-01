@@ -100,6 +100,7 @@ if [ ${_TARGET_ARCH_TYPE} == ARM ]; then
 	cd Mu_Basecore
 	git apply --check ../MuPatches/Compile.patch 2>/dev/null && git apply ../MuPatches/Compile.patch || true
 	git apply --check ../MuPatches/GenFw_ARM32.patch 2>/dev/null && git apply ../MuPatches/GenFw_ARM32.patch || true
+	git apply --check ../MuPatches/GraphicsConsole_NarrowScreen.patch 2>/dev/null && git apply ../MuPatches/GraphicsConsole_NarrowScreen.patch || true
 	cd ..
 fi
 

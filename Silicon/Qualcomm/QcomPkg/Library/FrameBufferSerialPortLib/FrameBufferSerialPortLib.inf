@@ -31,3 +31,4 @@
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferDelay
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelsPerScanLine
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferAddress

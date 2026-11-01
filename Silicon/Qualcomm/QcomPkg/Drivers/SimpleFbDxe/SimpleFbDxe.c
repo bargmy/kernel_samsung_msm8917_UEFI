@@ -72,6 +72,12 @@ DISPLAY_DEVICE_PATH mDisplayDevicePath = {
 STATIC FRAME_BUFFER_CONFIGURE *mFrameBufferBltLibConfigure;
 STATIC UINTN mFrameBufferBltLibConfigureSize;
 
+STATIC UINT8  *mFbBase;
+STATIC UINT32 mFbWidth;
+STATIC UINT32 mFbHeight;
+STATIC UINT32 mFbStride;
+STATIC UINT32 mFbBpp;
+
 STATIC
 EFI_STATUS
 EFIAPI
@@ -141,20 +147,135 @@ DisplayBlt(
     IN UINTN DestinationY, IN UINTN Width, IN UINTN Height,
     IN UINTN Delta OPTIONAL)
 {
-  RETURN_STATUS Status;
-  EFI_TPL       Tpl;
-  //
-  // We have to raise to TPL_NOTIFY, so we make an atomic write to the frame
-  // buffer. We would not want a timer based event (Cursor, ...) to come in
-  // while we are doing this operation.
-  //
-  Tpl    = gBS->RaiseTPL(TPL_NOTIFY);
-  Status = FrameBufferBlt(
-      mFrameBufferBltLibConfigure, BltBuffer, BltOperation, SourceX, SourceY,
-      DestinationX, DestinationY, Width, Height, Delta);
-  gBS->RestoreTPL(Tpl);
+  EFI_TPL Tpl;
 
-  return RETURN_ERROR(Status) ? EFI_INVALID_PARAMETER : EFI_SUCCESS;
+  if (mFbBpp != 24) {
+    Tpl    = gBS->RaiseTPL(TPL_NOTIFY);
+    RETURN_STATUS Status = FrameBufferBlt(
+        mFrameBufferBltLibConfigure, BltBuffer, BltOperation, SourceX, SourceY,
+        DestinationX, DestinationY, Width, Height, Delta);
+    gBS->RestoreTPL(Tpl);
+    return RETURN_ERROR(Status) ? EFI_INVALID_PARAMETER : EFI_SUCCESS;
+  }
+
+  // Native 24bpp packed RGB888 Blt handler
+  if (mFbBase == NULL || Width == 0 || Height == 0) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (BltOperation == EfiBltVideoFill || BltOperation == EfiBltBufferToVideo) {
+    if (DestinationX + Width > mFbWidth || DestinationY + Height > mFbHeight) {
+      return EFI_INVALID_PARAMETER;
+    }
+  } else if (BltOperation == EfiBltVideoToBltBuffer) {
+    if (SourceX + Width > mFbWidth || SourceY + Height > mFbHeight) {
+      return EFI_INVALID_PARAMETER;
+    }
+  } else if (BltOperation == EfiBltVideoToVideo) {
+    if (SourceX + Width > mFbWidth || SourceY + Height > mFbHeight ||
+        DestinationX + Width > mFbWidth || DestinationY + Height > mFbHeight) {
+      return EFI_INVALID_PARAMETER;
+    }
+  } else {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (Delta == 0) {
+    Delta = Width * sizeof(EFI_GRAPHICS_OUTPUT_BLT_PIXEL);
+  }
+
+  UINTN LinePitch = mFbStride * 3;
+  UINTN x, y;
+
+  Tpl = gBS->RaiseTPL(TPL_NOTIFY);
+
+  switch (BltOperation) {
+  case EfiBltVideoFill:
+    {
+      UINT8 R = BltBuffer->Red;
+      UINT8 G = BltBuffer->Green;
+      UINT8 B = BltBuffer->Blue;
+
+      for (y = 0; y < Height; y++) {
+        UINT8 *DstRow = mFbBase + ((DestinationY + y) * LinePitch) + (DestinationX * 3);
+        for (x = 0; x < Width; x++) {
+          DstRow[x * 3 + 0] = R;
+          DstRow[x * 3 + 1] = G;
+          DstRow[x * 3 + 2] = B;
+        }
+      }
+      WriteBackInvalidateDataCacheRange(
+          mFbBase + (DestinationY * LinePitch),
+          Height * LinePitch);
+      break;
+    }
+
+  case EfiBltBufferToVideo:
+    {
+      for (y = 0; y < Height; y++) {
+        EFI_GRAPHICS_OUTPUT_BLT_PIXEL *SrcRow = (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)
+            ((UINT8 *)BltBuffer + ((SourceY + y) * Delta) + (SourceX * sizeof(EFI_GRAPHICS_OUTPUT_BLT_PIXEL)));
+        UINT8 *DstRow = mFbBase + ((DestinationY + y) * LinePitch) + (DestinationX * 3);
+
+        for (x = 0; x < Width; x++) {
+          DstRow[x * 3 + 0] = SrcRow[x].Red;
+          DstRow[x * 3 + 1] = SrcRow[x].Green;
+          DstRow[x * 3 + 2] = SrcRow[x].Blue;
+        }
+      }
+      WriteBackInvalidateDataCacheRange(
+          mFbBase + (DestinationY * LinePitch),
+          Height * LinePitch);
+      break;
+    }
+
+  case EfiBltVideoToBltBuffer:
+    {
+      for (y = 0; y < Height; y++) {
+        UINT8 *SrcRow = mFbBase + ((SourceY + y) * LinePitch) + (SourceX * 3);
+        EFI_GRAPHICS_OUTPUT_BLT_PIXEL *DstRow = (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)
+            ((UINT8 *)BltBuffer + ((DestinationY + y) * Delta) + (DestinationX * sizeof(EFI_GRAPHICS_OUTPUT_BLT_PIXEL)));
+
+        for (x = 0; x < Width; x++) {
+          DstRow[x].Red      = SrcRow[x * 3 + 0];
+          DstRow[x].Green    = SrcRow[x * 3 + 1];
+          DstRow[x].Blue     = SrcRow[x * 3 + 2];
+          DstRow[x].Reserved = 0xFF;
+        }
+      }
+      break;
+    }
+
+  case EfiBltVideoToVideo:
+    {
+      if (DestinationY > SourceY) {
+        for (INTN dy = (INTN)Height - 1; dy >= 0; dy--) {
+          UINT8 *SrcRow = mFbBase + ((SourceY + dy) * LinePitch) + (SourceX * 3);
+          UINT8 *DstRow = mFbBase + ((DestinationY + dy) * LinePitch) + (DestinationX * 3);
+          CopyMem (DstRow, SrcRow, Width * 3);
+        }
+      } else {
+        for (y = 0; y < Height; y++) {
+          UINT8 *SrcRow = mFbBase + ((SourceY + y) * LinePitch) + (SourceX * 3);
+          UINT8 *DstRow = mFbBase + ((DestinationY + y) * LinePitch) + (DestinationX * 3);
+          CopyMem (DstRow, SrcRow, Width * 3);
+        }
+      }
+      UINTN FlushTop = (DestinationY < SourceY) ? DestinationY : SourceY;
+      UINTN FlushH   = Height + ((DestinationY > SourceY) ? (DestinationY - SourceY) : (SourceY - DestinationY));
+      WriteBackInvalidateDataCacheRange(
+          mFbBase + (FlushTop * LinePitch),
+          FlushH * LinePitch);
+      break;
+    }
+
+  default:
+    gBS->RestoreTPL(Tpl);
+    return EFI_INVALID_PARAMETER;
+  }
+
+  gBS->RestoreTPL(Tpl);
+  return EFI_SUCCESS;
 }
 
 EFI_STATUS
@@ -177,6 +298,11 @@ SimpleFbDxeInitialize(
   UINT32 MipiFrameBufferHeight = FixedPcdGet32(PcdMipiFrameBufferHeight);
   UINT32 MipiFrameBufferBpp    = FixedPcdGet32(PcdMipiFrameBufferPixelBpp);
   UINT32 MipiFrameBufferStride = FixedPcdGet32(PcdMipiFrameBufferPixelsPerScanLine);
+  UINT64 CustomFbAddr          = FixedPcdGet64(PcdMipiFrameBufferAddress);
+
+  if (CustomFbAddr != 0) {
+    MipiFrameBufferAddr = (UINT32)CustomFbAddr;
+  }
 
   if (MipiFrameBufferStride == 0) {
     MipiFrameBufferStride = MipiFrameBufferWidth;
@@ -191,6 +317,12 @@ SimpleFbDxeInitialize(
     DEBUG((EFI_D_ERROR, "SimpleFbDxe: Invalid FrameBuffer parameters\n"));
     return EFI_DEVICE_ERROR;
   }
+
+  mFbBase   = (UINT8 *)(UINTN)MipiFrameBufferAddr;
+  mFbWidth  = MipiFrameBufferWidth;
+  mFbHeight = MipiFrameBufferHeight;
+  mFbStride = MipiFrameBufferStride;
+  mFbBpp    = MipiFrameBufferBpp;
 
   /* Prepare struct */
   if (mDisplay.Mode == NULL) {
@@ -224,46 +356,44 @@ SimpleFbDxeInitialize(
 
   mDisplay.Mode->Info->HorizontalResolution = MipiFrameBufferWidth;
   mDisplay.Mode->Info->VerticalResolution   = MipiFrameBufferHeight;
+  mDisplay.Mode->Info->PixelsPerScanLine    = MipiFrameBufferStride;
 
   UINT32               BytesPerPixel      = MipiFrameBufferBpp / 8;
   UINT32               LineLength         = MipiFrameBufferStride * BytesPerPixel;
   UINT32               FrameBufferSize    = LineLength * MipiFrameBufferHeight;
   EFI_PHYSICAL_ADDRESS FrameBufferAddress = MipiFrameBufferAddr;
 
-  mDisplay.Mode->Info->PixelsPerScanLine = MipiFrameBufferStride;
-
   if (MipiFrameBufferBpp == 24) {
-    mDisplay.Mode->Info->PixelFormat = PixelBitMask;
-    mDisplay.Mode->Info->PixelInformation.RedMask      = 0x00FF0000;
-    mDisplay.Mode->Info->PixelInformation.GreenMask    = 0x0000FF00;
-    mDisplay.Mode->Info->PixelInformation.BlueMask     = 0x000000FF;
-    mDisplay.Mode->Info->PixelInformation.ReservedMask = 0;
+    // 24bpp packed RGB888: Use PixelBltOnly so all callers use our custom DisplayBlt
+    mDisplay.Mode->Info->PixelFormat = PixelBltOnly;
+    mDisplay.Mode->FrameBufferBase   = 0;
+    mDisplay.Mode->FrameBufferSize   = 0;
   } else {
 #if DISPLAY_USES_RGBA == 1
     mDisplay.Mode->Info->PixelFormat = PixelRedGreenBlueReserved8BitPerColor;
 #else
     mDisplay.Mode->Info->PixelFormat = PixelBlueGreenRedReserved8BitPerColor;
 #endif
-  }
-  mDisplay.Mode->SizeOfInfo      = sizeof(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION);
-  mDisplay.Mode->FrameBufferBase = FrameBufferAddress;
-  mDisplay.Mode->FrameBufferSize = FrameBufferSize;
+    mDisplay.Mode->FrameBufferBase = FrameBufferAddress;
+    mDisplay.Mode->FrameBufferSize = FrameBufferSize;
 
-  /* Create the FrameBufferBltLib configuration. */
-  Status = FrameBufferBltConfigure(
-      (VOID *)(UINTN)mDisplay.Mode->FrameBufferBase, mDisplay.Mode->Info,
-      mFrameBufferBltLibConfigure, &mFrameBufferBltLibConfigureSize);
+    /* Create the FrameBufferBltLib configuration for 32bpp fallback. */
+    Status = FrameBufferBltConfigure(
+        (VOID *)(UINTN)mDisplay.Mode->FrameBufferBase, mDisplay.Mode->Info,
+        mFrameBufferBltLibConfigure, &mFrameBufferBltLibConfigureSize);
 
-  if (Status == RETURN_BUFFER_TOO_SMALL) {
-    mFrameBufferBltLibConfigure = AllocatePool(mFrameBufferBltLibConfigureSize);
-    if (mFrameBufferBltLibConfigure != NULL) {
-      Status = FrameBufferBltConfigure(
-          (VOID *)(UINTN)mDisplay.Mode->FrameBufferBase, mDisplay.Mode->Info,
-          mFrameBufferBltLibConfigure, &mFrameBufferBltLibConfigureSize);
+    if (Status == RETURN_BUFFER_TOO_SMALL) {
+      mFrameBufferBltLibConfigure = AllocatePool(mFrameBufferBltLibConfigureSize);
+      if (mFrameBufferBltLibConfigure != NULL) {
+        Status = FrameBufferBltConfigure(
+            (VOID *)(UINTN)mDisplay.Mode->FrameBufferBase, mDisplay.Mode->Info,
+            mFrameBufferBltLibConfigure, &mFrameBufferBltLibConfigureSize);
+      }
     }
+    ASSERT_EFI_ERROR(Status);
   }
 
-  ASSERT_EFI_ERROR(Status);
+  mDisplay.Mode->SizeOfInfo = sizeof(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION);
 
   /* Register handle */
   Status = gBS->InstallMultipleProtocolInterfaces(

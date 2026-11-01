@@ -16,6 +16,7 @@
 UINTN delay = FixedPcdGet32(PcdMipiFrameBufferDelay);
 
 ARM_MEMORY_REGION_DESCRIPTOR_EX DisplayMemoryRegion;
+STATIC UINT8 *mFbBase = NULL;
 
 FBCON_POSITION* p_Position = NULL;
 FBCON_POSITION m_MaxPosition;
@@ -51,8 +52,20 @@ SerialPortInitialize(VOID)
     gStride = gWidth;
   }
 
-  LocateMemoryMapAreaByName("Display Reserved", &DisplayMemoryRegion);
-  p_Position = (FBCON_POSITION*)(DisplayMemoryRegion.Address + (gStride * FixedPcdGet32(PcdMipiFrameBufferHeight) * FixedPcdGet32(PcdMipiFrameBufferPixelBpp) / 8));
+  UINT64 FbAddr = FixedPcdGet64(PcdMipiFrameBufferAddress);
+  if (FbAddr != 0) {
+    mFbBase = (UINT8 *)(UINTN)FbAddr;
+  } else {
+    LocateMemoryMapAreaByName("Display Reserved", &DisplayMemoryRegion);
+    mFbBase = (UINT8 *)DisplayMemoryRegion.Address;
+  }
+
+  UINTN BytesPerPixel = gBpp / 8;
+  if (BytesPerPixel == 0) {
+    BytesPerPixel = 3;
+  }
+
+  p_Position = (FBCON_POSITION*)(((UINTN)mFbBase + (gStride * gHeight * BytesPerPixel) + 7) & ~7);
 
   // Reset console
   FbConReset();
@@ -65,6 +78,16 @@ SerialPortInitialize(VOID)
 
 void ResetFb(void)
 {
+  if (mFbBase == NULL) {
+    UINT64 FbAddr = FixedPcdGet64(PcdMipiFrameBufferAddress);
+    if (FbAddr != 0) {
+      mFbBase = (UINT8 *)(UINTN)FbAddr;
+    } else {
+      LocateMemoryMapAreaByName("Display Reserved", &DisplayMemoryRegion);
+      mFbBase = (UINT8 *)DisplayMemoryRegion.Address;
+    }
+  }
+
   if (gStride == 0) {
     gStride = gWidth;
   }
@@ -74,7 +97,7 @@ void ResetFb(void)
     BytesPerPixel = 3;
   }
 
-  UINT8 *Line = (UINT8 *)DisplayMemoryRegion.Address;
+  UINT8 *Line = mFbBase;
   UINTN LinePitch = gStride * BytesPerPixel;
   UINTN RowBytes = gWidth * BytesPerPixel;
 
@@ -135,7 +158,7 @@ paint:
     BytesPerPixel = 3;
   }
 
-  Pixels = (void *)DisplayMemoryRegion.Address;
+  Pixels = (void *)mFbBase;
   Pixels += p_Position->y * (BytesPerPixel * FONT_HEIGHT * gStride);
   Pixels += p_Position->x * scale_factor * (BytesPerPixel * (FONT_WIDTH + 1));
 
@@ -184,7 +207,7 @@ void FbConDrawglyph(
   unsigned int fg_color = m_Color.Foreground;
 
   for (r = 0; r < total_rows; ++r) {
-    char *row_ptr = pixels + (r * line_pitch);
+    UINT8 *row_ptr = (UINT8 *)pixels + (r * line_pitch);
 
     // Clear background for this character row to black
     ZeroMem (row_ptr, char_box_width * bpp);
@@ -204,11 +227,17 @@ void FbConDrawglyph(
       if ((data >> font_x) & 1) {
         for (j = 0; j < scale_factor; ++j) {
           pixel_x = font_x * scale_factor + j;
-          char *p = row_ptr + (pixel_x * bpp);
-          unsigned int color = fg_color;
-          for (k = 0; k < bpp; ++k) {
-            p[k] = (unsigned char)color;
-            color >>= 8;
+          UINT8 *p = row_ptr + (pixel_x * bpp);
+          if (bpp == 3) {
+            p[0] = (UINT8)((fg_color >> 16) & 0xFF); // Red
+            p[1] = (UINT8)((fg_color >> 8) & 0xFF);  // Green
+            p[2] = (UINT8)(fg_color & 0xFF);         // Blue
+          } else {
+            unsigned int color = fg_color;
+            for (k = 0; k < bpp; ++k) {
+              p[k] = (UINT8)(color & 0xFF);
+              color >>= 8;
+            }
           }
         }
       }
@@ -218,6 +247,10 @@ void FbConDrawglyph(
 
 void FbConScrollUp(void)
 {
+  if (mFbBase == NULL) {
+    return;
+  }
+
   if (gStride == 0) {
     gStride = gWidth;
   }
@@ -230,7 +263,7 @@ void FbConScrollUp(void)
   UINTN LinePitch = gStride * BytesPerPixel;
   UINTN RowBytes = gWidth * BytesPerPixel;
 
-  UINT8 *dst = (UINT8 *)DisplayMemoryRegion.Address;
+  UINT8 *dst = mFbBase;
   UINT8 *src = dst + (LinePitch * FONT_HEIGHT);
 
   for (UINTN y = 0; y < (gHeight - FONT_HEIGHT); y++) {
@@ -249,6 +282,10 @@ void FbConScrollUp(void)
 
 void FbConFlush(void)
 {
+  if (mFbBase == NULL) {
+    return;
+  }
+
   if (gStride == 0) {
     gStride = gWidth;
   }
@@ -259,7 +296,7 @@ void FbConFlush(void)
   }
 
   WriteBackInvalidateDataCacheRange(
-      (void *)DisplayMemoryRegion.Address,
+      (void *)mFbBase,
       (gStride * gHeight * BytesPerPixel));
 }
 

@@ -1,0 +1,81 @@
+diff --git a/MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsole.c b/MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsole.c
+index cea0b28ba7..9797078346 100644
+--- a/MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsole.c
++++ b/MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsole.c
+@@ -265,9 +265,10 @@ InitializeGraphicsConsoleTextMode (
+   MaxRows    = VerticalResolution / EFI_GLYPH_HEIGHT;
+ 
+   //
+-  // According to UEFI spec, all output devices support at least 80x25 text mode.
++  // Ensure the display can support at least some text columns and rows.
++  // For mobile portrait displays (e.g. 540x960), MaxColumns is 67 (< 80).
+   //
+-  ASSERT ((MaxColumns >= 80) && (MaxRows >= 25));
++  ASSERT ((MaxColumns > 0) && (MaxRows > 0));
+ 
+   //
+   // Add full screen mode to the last entry.
+@@ -295,31 +296,43 @@ InitializeGraphicsConsoleTextMode (
+   // MU_CHANGE [END] - CodeQL change
+ 
+   //
+-  // Mode 0 and mode 1 is for 80x25, 80x50 according to UEFI spec.
++  // Mode 0 and mode 1:
++  // For standard displays, mode 0 is 80x25 and mode 1 is 80x50.
++  // For narrow portrait displays (< 80 columns), mode 0 is MaxColumns x 25.
+   //
+   ValidCount = 0;
+ 
+-  NewModeBuffer[ValidCount].Columns       = 80;
+-  NewModeBuffer[ValidCount].Rows          = 25;
+-  NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
+-  NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
+-  NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
+-  NewModeBuffer[ValidCount].DeltaX        = (HorizontalResolution - (NewModeBuffer[ValidCount].Columns * EFI_GLYPH_WIDTH)) >> 1;
+-  NewModeBuffer[ValidCount].DeltaY        = (VerticalResolution - (NewModeBuffer[ValidCount].Rows * EFI_GLYPH_HEIGHT)) >> 1;
+-  ValidCount++;
+-
+-  if ((MaxColumns >= 80) && (MaxRows >= 50)) {
+-    NewModeBuffer[ValidCount].Columns = 80;
+-    NewModeBuffer[ValidCount].Rows    = 50;
+-    NewModeBuffer[ValidCount].DeltaX  = (HorizontalResolution - (80 * EFI_GLYPH_WIDTH)) >> 1;
+-    NewModeBuffer[ValidCount].DeltaY  = (VerticalResolution - (50 * EFI_GLYPH_HEIGHT)) >> 1;
++  if (MaxColumns < 80) {
++    NewModeBuffer[ValidCount].Columns       = MaxColumns;
++    NewModeBuffer[ValidCount].Rows          = (MaxRows < 25) ? MaxRows : 25;
++    NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
++    NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
++    NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
++    NewModeBuffer[ValidCount].DeltaX        = (HorizontalResolution - (NewModeBuffer[ValidCount].Columns * EFI_GLYPH_WIDTH)) >> 1;
++    NewModeBuffer[ValidCount].DeltaY        = (VerticalResolution - (NewModeBuffer[ValidCount].Rows * EFI_GLYPH_HEIGHT)) >> 1;
++    ValidCount++;
++  } else {
++    NewModeBuffer[ValidCount].Columns       = 80;
++    NewModeBuffer[ValidCount].Rows          = 25;
++    NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
++    NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
++    NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
++    NewModeBuffer[ValidCount].DeltaX        = (HorizontalResolution - (NewModeBuffer[ValidCount].Columns * EFI_GLYPH_WIDTH)) >> 1;
++    NewModeBuffer[ValidCount].DeltaY        = (VerticalResolution - (NewModeBuffer[ValidCount].Rows * EFI_GLYPH_HEIGHT)) >> 1;
++    ValidCount++;
++
++    if ((MaxColumns >= 80) && (MaxRows >= 50)) {
++      NewModeBuffer[ValidCount].Columns       = 80;
++      NewModeBuffer[ValidCount].Rows          = 50;
++      NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
++      NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
++      NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
++      NewModeBuffer[ValidCount].DeltaX        = (HorizontalResolution - (80 * EFI_GLYPH_WIDTH)) >> 1;
++      NewModeBuffer[ValidCount].DeltaY        = (VerticalResolution - (50 * EFI_GLYPH_HEIGHT)) >> 1;
++      ValidCount++;
++    }
+   }
+ 
+-  NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
+-  NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
+-  NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
+-  ValidCount++;
+-
+   //
+   // Start from mode 2 to put the valid mode other than 80x25 and 80x50 in the output mode buffer.
+   //
