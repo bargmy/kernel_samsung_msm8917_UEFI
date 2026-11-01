@@ -107,6 +107,17 @@ void ResetFb(void)
   }
 }
 
+// Start an explicit status page without inheriting another module's cursor.
+void FbConStartScreen(void)
+{
+  SerialPortInitialize();
+  ResetFb();
+  p_Position->x = 0;
+  p_Position->y = 0;
+  FbConReset();
+  FbConFlush();
+}
+
 void FbConReset(void)
 {
   // Calc max position.

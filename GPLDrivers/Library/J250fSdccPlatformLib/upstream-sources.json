@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/bargmy/android_kernel_samsung_msm8917_forOneUI",
+  "commit": "d8e6e0d79bf4e26a11d5f69c843a6ad096b2b181",
+  "sha256": {
+    "drivers/mmc/host/sdhci-msm.c": "cecd57c7870886634d1fbc913b131ef59b7f40b42fd2e51e3c1554463ed96fb0",
+    "drivers/clk/msm/clock-gcc-8952.c": "6ca48568a80c0c8a0493d81e8b8d7aa9ff1f45583b5b5af28b11c6b1e87c15e8",
+    "drivers/clk/msm/clock-local2.c": "0e09c8e065de7b705ca4c9218fd22f99ae188cb3e9b1a597a93485b83e10229c",
+    "include/dt-bindings/clock/msm-clocks-hwio-8952.h": "a20e2188a7476f79878b8417c789b42e186dbac04a1cfef0ab868a74a5a0a540",
+    "drivers/pinctrl/qcom/pinctrl-msm8917.c": "270c3db45eb6024e55d92ca2d7e72ebfce3750e6ecb17b5ec50152ce8a8a3333",
+    "drivers/pinctrl/qcom/pinctrl-msm.c": "e447008172dfeefcd88d3ca3d6009b40bedb911071464e728b8d100faffb8d24",
+    "drivers/regulator/rpm-smd-regulator.c": "ac5614cee69b50ae8dc13e7bd8fe1c16aac9f42dfea070c947d7f6d98fecde8c",
+    "drivers/soc/qcom/rpm-smd.c": "5371dbdc317718299478840f8a294a97d0356f281692a657949df59d4565d65e",
+    "drivers/soc/qcom/smd.c": "e629621484e3960a1a54a3bda08f97de4608f49f90569287be3a2d70bdf30d3e",
+    "drivers/soc/qcom/smd_private.c": "3973f75acddaa9a30c34dedb5723fcdbeef4d8d35b2a2f252187bcdd439a9590",
+    "drivers/soc/qcom/smem.c": "e54d7c85ea5d6d13bd725dca34ebab6858b113fb136be10d2d056d4bd6c5e921",
+    "arch/arm/boot/dts/samsung/msm8917/msm8917-sec-j2y18lte-mea-open-r04.dts": "9e8445e0f60a2cbb3ffda46ed4b47beed1b0e5edaae82041109294faed3b7aa2"
+  }
+}

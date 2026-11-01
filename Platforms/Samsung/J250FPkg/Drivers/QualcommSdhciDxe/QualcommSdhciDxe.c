@@ -31,7 +31,10 @@
 #define REG_PRESENT_STATE  0x24U
 #define REG_POWER          0x29U
 #define REG_CLOCK          0x2CU
+#define REG_RESET          0x2FU
+#define RESET_CMD          0x02U
 #define REG_INT_STATUS     0x30U
+#define REG_INT_ENABLE     0x34U
 #define REG_CAPS           0x40U
 #define REG_HOST_VERSION   0xFEU
 #define REG_CORE_VERSION   0x50U
@@ -52,7 +55,8 @@ STATIC EFI_BOOT_SERVICES *mBs;
 STATIC VOID
 Log (CONST CHAR8 *Message)
 {
-  SerialPortWrite ((CONST UINT8 *)Message, AsciiStrLen (Message));
+  // This SerialPortLib API takes a mutable pointer; it does not modify input.
+  SerialPortWrite ((UINT8 *)Message, AsciiStrLen (Message));
 }
 
 STATIC VOID
@@ -91,6 +95,7 @@ SendIdCommand (
   UINT32 Status;
   UINTN Retry;
   EFI_STATUS Result;
+  CHAR8 Trace[160];
 
   if (Cmd == 0) {
     Command = 0x0000U;  // GO_IDLE_STATE; no response
@@ -103,10 +108,33 @@ SendIdCommand (
   }
 
   Result = WaitCommandIdle ();
+  if (EFI_ERROR (Result) && Cmd == 0 &&
+      (MmioRead32 (HOST_BASE + REG_PRESENT_STATE) &
+       (CMD_INHIBIT | DATA_INHIBIT)) == CMD_INHIBIT) {
+    Log ("CMD0 NOT ISSUED: inherited CMD inhibit. Resetting HOST CMD line once.\r\n");
+    MmioWrite8 (HOST_BASE + REG_RESET, RESET_CMD);
+    for (Retry = 0; Retry < 100; ++Retry) {
+      if ((MmioRead8 (HOST_BASE + REG_RESET) & RESET_CMD) == 0) {
+        break;
+      }
+      PauseMs (1);
+    }
+    if (Retry == 100) {
+      Log ("HOST CMD reset did not finish; no card command issued.\r\n");
+      return EFI_TIMEOUT;
+    }
+    Result = WaitCommandIdle ();
+  }
   if (EFI_ERROR (Result)) {
+    Log ("PRE-COMMAND idle timeout; command register NOT written.\r\n");
     return Result;
   }
 
+  AsciiSPrint (Trace, sizeof (Trace), "Issuing CMD%u: STATE=%08x CLK=%04x EN=%08x\r\n",
+    Cmd, MmioRead32 (HOST_BASE + REG_PRESENT_STATE),
+    (UINT32)MmioRead16 (HOST_BASE + REG_CLOCK),
+    MmioRead32 (HOST_BASE + REG_INT_ENABLE));
+  Log (Trace);
   // These are HOST CONTROLLER register writes only. REG_INT_STATUS is W1C.
   MmioWrite32 (HOST_BASE + REG_INT_STATUS, 0xFFFFFFFFU);
   MmioWrite32 (HOST_BASE + REG_ARGUMENT, Argument);
@@ -115,6 +143,8 @@ SendIdCommand (
   for (Retry = 0; Retry < 3000; ++Retry) {
     Status = MmioRead32 (HOST_BASE + REG_INT_STATUS);
     if ((Status & INT_ERRORS) != 0) {
+      AsciiSPrint (Trace, sizeof (Trace), "CMD%u error: INT_STATUS=%08x\r\n", Cmd, Status);
+      Log (Trace);
       return EFI_DEVICE_ERROR;
     }
     if ((Status & CMD_COMPLETE) != 0) {
@@ -126,12 +156,14 @@ SendIdCommand (
     }
     PauseMs (1);
   }
+  Log ("POST-COMMAND completion timeout; command register WAS written.\r\n");
   return EFI_TIMEOUT;
 }
 
 // Lower clock to <= 400 kHz for identification. Do not change card supply
-// voltage, GPIOs, PMIC configuration, host resets or vendor-specific registers.
+// voltage, GPIOs or PMIC configuration. Qualcomm timing is normalized below.
 // SDHCI v3+ clock divider is in bits [15:8] and [7:6].
+// HOST_VERSION spec byte is zero-based: SDHCI 3.0 == 2.
 STATIC EFI_STATUS
 SetIdentificationClock (
   IN UINT16 OriginalClock,
@@ -139,22 +171,21 @@ SetIdentificationClock (
   IN UINT16 HostVersion
   )
 {
-  UINT32 BaseClockMHz = (Capabilities >> 8) & 0xFFU;
+  UINT32 Vendor;
   UINT32 Divisor;
   UINT16 Clock;
   UINTN Retry;
 
-  if ((HostVersion & 0xFFU) < 0x03U ||
-      BaseClockMHz == 0U || BaseClockMHz > 250U ||
+  if ((HostVersion & 0xFFU) < 0x02U ||
       (OriginalClock & (CLOCK_INT_EN | CLOCK_INT_STABLE | CLOCK_SD_EN)) !=
           (CLOCK_INT_EN | CLOCK_INT_STABLE | CLOCK_SD_EN)) {
     return EFI_UNSUPPORTED;
   }
 
-  Divisor = ((BaseClockMHz * 1000000U) + 799999U) / 800000U;
-  if (Divisor == 0 || Divisor > 1023U) {
-    return EFI_UNSUPPORTED;
-  }
+  // Qualcomm marks CAPS clock-base broken. Use the maximum v3 divider.
+  // J250F DTS supports source rates through 384 MHz: /2046 ~=188 kHz.
+  // This does not program GCC or assume that CAPS describes its source rate.
+  Divisor = 1023U;
 
   Clock = (UINT16)(
       CLOCK_INT_EN |
@@ -162,10 +193,22 @@ SetIdentificationClock (
       ((Divisor & 0x300U) >> 2)
       );
 
-  // Only the standard SDHCI clock-control register is modified.
+  // Stop card clock before changing host timing and Qualcomm clock selection.
   // Stop SDCLK, select a <=400kHz divisor, wait for internal-clock stable,
   // then enable card clock. This changes controller state, not flash sectors.
   MmioWrite16 (HOST_BASE + REG_CLOCK, OriginalClock & ~CLOCK_SD_EN);
+  // Normalize inherited HS200/HS400 host settings, following Samsung's
+  // non-HS400 clock-selection path. Preserve voltage and pad-power bits.
+  Vendor = MmioRead32 (HOST_BASE + 0x10c);
+  Vendor &= ~((3U << 8) | (1U << 18) | (7U << 19) | (1U << 1));
+  Vendor |= (2U << 8);
+  MmioWrite32 (HOST_BASE + 0x10c, Vendor);
+  MmioWrite16 (HOST_BASE + 0x3e,
+    MmioRead16 (HOST_BASE + 0x3e) & (UINT16)~0x80c7U);
+  // Legacy, one-bit host bus for identification; no data transfers occur.
+  MmioWrite8 (HOST_BASE + 0x28,
+    MmioRead8 (HOST_BASE + 0x28) & (UINT8)~0x26U);
+  Log ("Legacy host timing; max divider=1023, CAPS clock ignored.\r\n");
   MmioWrite16 (HOST_BASE + REG_CLOCK, Clock);
 
   for (Retry = 0; Retry < 500; ++Retry) {
@@ -190,6 +233,8 @@ QualcommSdhciDiagnosticEntry (
   UINT8 PowerControl;
   UINT32 Caps, CoreVersion, Ocr = 0, Cid[4] = {0, 0, 0, 0};
   UINT32 CardOcrRequest;
+  UINT32 OriginalIntEnable = 0;
+  BOOLEAN StatusEnableChanged = FALSE;
   UINTN Iter;
   EFI_STATUS Result;
 
@@ -198,7 +243,7 @@ QualcommSdhciDiagnosticEntry (
   Log (
     "\r\n=== J250F eMMC CHIP IDENTIFICATION (NO SECTOR ACCESS) ===\r\n"
     "Allowed MMC commands: CMD0 CMD1 CMD2 only.\r\n"
-    "Host MMIO writes: clock / command / argument / W1C status ONLY.\r\n"
+    "Host MMIO writes: clock / timing / HC mode / status enable / command / reset.\r\n"
     "NO DATA TRANSFER, NO ERASE, NO SWITCH, NO BLOCK IO.\r\n"
     );
 
@@ -216,6 +261,18 @@ QualcommSdhciDiagnosticEntry (
     );
   Log (Buffer);
 
+  // Samsung sdhci-msm.c: core HC_MODE +0x78; power handshake +0xdc/e0/e8.
+  // Vendor register is HOST-relative, not core-relative.
+  AsciiSPrint (Buffer, sizeof (Buffer),
+    "QCOM HC_MODE=%08x VENDOR=%08x HC2=%04x\r\n"
+    "PWR_STATUS=%08x MASK=%08x CTL=%08x\r\n"
+    "CAPS clock base ignored; using maximum SDHCI v3 divisor.\r\n",
+    MmioRead32 (CORE_BASE + 0x78), MmioRead32 (HOST_BASE + 0x10c),
+    (UINT32)MmioRead16 (HOST_BASE + 0x3e),
+    MmioRead32 (CORE_BASE + 0xdc), MmioRead32 (CORE_BASE + 0xe0),
+    MmioRead32 (CORE_BASE + 0xe8));
+  Log (Buffer);
+
   // Fail-closed if the inherited host state or readback is suspicious.
   if (HostVersion == 0 || HostVersion == 0xFFFF ||
       CoreVersion == 0 || CoreVersion == 0xFFFFFFFF ||
@@ -225,12 +282,35 @@ QualcommSdhciDiagnosticEntry (
     goto Done;
   }
 
+  // Samsung sdhci-msm.c probe: enable the SDHCI frontend and prevent
+  // feedback-clock software reset. Preserve other inherited core-mode bits.
+  // This changes host state only; it does not send a card command.
+  {
+    UINT32 CoreMode = MmioRead32 (CORE_BASE + 0x78);
+    AsciiSPrint (Buffer, sizeof (Buffer), "HC_MODE before=%08x\r\n", CoreMode);
+    Log (Buffer);
+    MmioWrite32 (CORE_BASE + 0x78, CoreMode | 0x2001U);
+    CoreMode = MmioRead32 (CORE_BASE + 0x78);
+    AsciiSPrint (Buffer, sizeof (Buffer), "HC_MODE readback=%08x (required bits=00002001)\r\n", CoreMode);
+    Log (Buffer);
+    if ((CoreMode & 0x2001U) != 0x2001U) {
+      Log ("STOP: Qualcomm HC mode enable did not latch. NO COMMANDS SENT.\r\n");
+      Result = EFI_DEVICE_ERROR;
+      goto Done;
+    }
+  }
+
   Result = SetIdentificationClock (ClockControl, Caps, HostVersion);
   if (EFI_ERROR (Result)) {
     Log ("STOP: cannot safely establish 400kHz identification clock.\r\n");
     goto Done;
   }
 
+  // Enable command/error status latching for polling; do not enable IRQ signals.
+  OriginalIntEnable = MmioRead32 (HOST_BASE + REG_INT_ENABLE);
+  MmioWrite32 (HOST_BASE + REG_INT_ENABLE,
+               OriginalIntEnable | CMD_COMPLETE | 0x000F0000U);
+  StatusEnableChanged = TRUE;
   Result = SendIdCommand (0, 0, NULL);
   if (EFI_ERROR (Result)) {
     Log ("STOP: CMD0 failed. No additional commands.\r\n");
@@ -285,6 +365,14 @@ QualcommSdhciDiagnosticEntry (
   Log (Buffer);
 
 Done:
+  if (StatusEnableChanged) {
+    AsciiSPrint (Buffer, sizeof (Buffer),
+      "FINAL_INT_STATUS=%08x PRESENT_STATE=%08x\r\n",
+      MmioRead32 (HOST_BASE + REG_INT_STATUS),
+      MmioRead32 (HOST_BASE + REG_PRESENT_STATE));
+    Log (Buffer);
+    MmioWrite32 (HOST_BASE + REG_INT_ENABLE, OriginalIntEnable);
+  }
   AsciiSPrint (Buffer, sizeof (Buffer), "RESULT=0x%08x\r\n", (UINT32)Result);
   Log (Buffer);
   Log (

@@ -24,6 +24,9 @@ static ARM_MEMORY_REGION_DESCRIPTOR_EX gDeviceMemoryDescriptorEx[] = {
     /* Upper DRAM: Conservative 256 MB slice above Framebuffer */
     {"RAM Partition 2",   0xa8300000, 0x10000000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK_XN},
 
+    // Samsung DTS SMEM: reserved shared APPS/RPM memory, uncached device map.
+    {"RPM SMEM", 0x86300000, 0x00100000, AddDev, MMAP_IO, UNCACHEABLE, MmIO, NS_DEVICE},
+
     /* Register regions (Qualcomm Snapdragon 425 MSM8917 MMIO) */
     {"Registers",         0x00000000, 0x80000000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
 

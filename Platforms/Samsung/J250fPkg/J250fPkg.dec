@@ -1,0 +1,18 @@
+## @file
+# Samsung SM-J250F Project Mu firmware eMMC support package.
+# SPDX-License-Identifier: GPL-2.0-only
+[Defines]
+  DEC_SPECIFICATION = 0x00010005
+  PACKAGE_NAME      = J250fPkg
+  PACKAGE_GUID      = 4a47b530-b8c2-40b3-ab89-2e73b9cad10c
+  PACKAGE_VERSION   = 0.1
+
+[Includes]
+  J250fEmmcDxe/Include
+
+[Protocols]
+  # Platform DXE must install this only after checking actual PM8917 rails.
+  gJ250fEmmcPowerProtocolGuid = { 0x7429cc61, 0x5fcb, 0x45c9, { 0x92, 0x6e, 0xd4, 0x08, 0x88, 0x37, 0xcf, 0x18 } }
+
+[Guids]
+  gJ250fEmmcDevicePathGuid = { 0x6d24d6e0, 0xe839, 0x4c14, { 0xa1, 0xbf, 0x53, 0xd7, 0xd4, 0x75, 0xa5, 0x8d } }

@@ -1,0 +1,182 @@
+/** @file
+  Safe, read-only Project Mu/EDK II Block I/O frontend for a Qualcomm LK
+  MMC backend. Uses the integrated controller backend and RPM power provider.
+  SPDX-License-Identifier: BSD-2-Clause
+**/
+#include <Uefi.h>
+#include <Protocol/BlockIo.h>
+#include <Protocol/DevicePath.h>
+#include <Library/BaseMemoryLib.h>
+#include <Library/UefiBootServicesTableLib.h>
+#include <Library/DebugLib.h>
+#include <Library/PrintLib.h>
+#include <Library/SerialPortLib.h>
+#include <Library/FrameBufferSerialPortLib.h>
+#include "J250fLkPlatform.h"
+#include "J250fPowerProtocol.h"
+
+typedef struct {
+  VENDOR_DEVICE_PATH Vendor;
+  EFI_DEVICE_PATH_PROTOCOL End;
+} J250F_LK_PATH;
+
+typedef struct {
+  EFI_HANDLE Handle;
+  EFI_BLOCK_IO_PROTOCOL Io;
+  EFI_BLOCK_IO_MEDIA Media;
+  J250F_LK_PATH Path;
+  J250F_LK_DISK Lk;
+  BOOLEAN Busy;
+} J250F_LK_PRIVATE;
+static J250F_LK_PRIVATE mDisk;
+static BOOLEAN mPublished;
+
+#define J250F_LK_SECTOR_BYTES 512
+static CONST EFI_GUID mDiskPathGuid = {
+  0x98074a7c, 0x2be4, 0x47dc, {0xb7,0xa2,0x17,0x75,0xac,0xfb,0x10,0x91}
+};
+
+static BOOLEAN Enter (VOID) {
+  EFI_TPL Previous = gBS->RaiseTPL (TPL_NOTIFY);
+  BOOLEAN Ok = !mDisk.Busy;
+  if (Ok) mDisk.Busy = TRUE;
+  gBS->RestoreTPL (Previous);
+  return Ok;
+}
+static VOID Leave (VOID) {
+  EFI_TPL Previous = gBS->RaiseTPL (TPL_NOTIFY);
+  mDisk.Busy = FALSE;
+  gBS->RestoreTPL (Previous);
+}
+
+static EFI_STATUS EFIAPI LkReset (
+  IN EFI_BLOCK_IO_PROTOCOL *This, IN BOOLEAN ExtendedVerification
+) {
+  (VOID)ExtendedVerification;
+  if (This != &mDisk.Io) return EFI_INVALID_PARAMETER;
+  // A destructive controller reset requires a platform-specific recovery path.
+  // Extended verification performs an actual read of LBA 0 instead of a
+  // misleading unconditional-success reset. No eMMC writes are attempted.
+  if (!mDisk.Media.MediaPresent) return EFI_NO_MEDIA;
+  if (ExtendedVerification) {
+    UINT8 Sector[J250F_LK_SECTOR_BYTES];
+    EFI_STATUS Status;
+    if (!Enter()) return EFI_NOT_READY;
+    Status=mDisk.Lk.ReadBlocks(mDisk.Lk.Device,0,1,Sector);
+    Leave();
+    return Status;
+  }
+  return EFI_SUCCESS;
+}
+static EFI_STATUS EFIAPI LkRead (
+  IN EFI_BLOCK_IO_PROTOCOL *This, IN UINT32 MediaId, IN EFI_LBA Lba,
+  IN UINTN BufferSize, OUT VOID *Buffer
+) {
+  EFI_STATUS Status;
+  UINTN Count;
+  if (This != &mDisk.Io) return EFI_INVALID_PARAMETER;
+  if (MediaId != mDisk.Media.MediaId) return EFI_MEDIA_CHANGED;
+  if (!mDisk.Media.MediaPresent) return EFI_NO_MEDIA;
+  if (BufferSize == 0) return EFI_SUCCESS;
+  if (Buffer == NULL) return EFI_INVALID_PARAMETER;
+  if ((BufferSize % mDisk.Media.BlockSize) != 0) return EFI_BAD_BUFFER_SIZE;
+  if (mDisk.Media.IoAlign > 1 &&
+      (((UINTN)Buffer & (mDisk.Media.IoAlign - 1)) != 0))
+    return EFI_INVALID_PARAMETER;
+  Count = BufferSize / mDisk.Media.BlockSize;
+  if (Count == 0 || Lba > mDisk.Media.LastBlock ||
+      (EFI_LBA)(Count - 1) > mDisk.Media.LastBlock - Lba)
+    return EFI_INVALID_PARAMETER;
+  if (!Enter ()) return EFI_NOT_READY;
+  Status = mDisk.Lk.ReadBlocks (mDisk.Lk.Device, Lba, Count, Buffer);
+  Leave ();
+  return Status;
+}
+static EFI_STATUS EFIAPI LkWrite (
+  IN EFI_BLOCK_IO_PROTOCOL *This, IN UINT32 MediaId, IN EFI_LBA Lba,
+  IN UINTN BufferSize, IN VOID *Buffer
+) {
+  (VOID)Lba; (VOID)BufferSize; (VOID)Buffer;
+  if (This != &mDisk.Io) return EFI_INVALID_PARAMETER;
+  if (MediaId != mDisk.Media.MediaId) return EFI_MEDIA_CHANGED;
+  return mDisk.Media.MediaPresent ? EFI_WRITE_PROTECTED : EFI_NO_MEDIA;
+}
+static EFI_STATUS EFIAPI LkFlush (IN EFI_BLOCK_IO_PROTOCOL *This) {
+  if (This != &mDisk.Io) return EFI_INVALID_PARAMETER;
+  return mDisk.Media.MediaPresent ? EFI_SUCCESS : EFI_NO_MEDIA;
+}
+
+STATIC EFI_STATUS
+InstallDisk(VOID) {
+  EFI_STATUS Status;
+  if (mPublished) return EFI_SUCCESS;
+  ZeroMem(&mDisk,sizeof(mDisk));
+  Status=J250fLkBoardOpen(&mDisk.Lk);
+  if (EFI_ERROR(Status)) {
+    DEBUG((DEBUG_ERROR,"J250F eMMC: not published: %r\n",Status));
+    return Status;
+  }
+  if (mDisk.Lk.Device==NULL || mDisk.Lk.ReadBlocks==NULL ||
+      mDisk.Lk.NumberOfBlocks==0 || mDisk.Lk.BlockSize!=512 ||
+      mDisk.Lk.IoAlignment==0 ||
+      (mDisk.Lk.IoAlignment & (mDisk.Lk.IoAlignment-1))!=0)
+    return EFI_DEVICE_ERROR;
+  mDisk.Media.MediaId=1;
+  mDisk.Media.MediaPresent=TRUE;
+  mDisk.Media.RemovableMedia=FALSE;
+  mDisk.Media.LogicalPartition=FALSE;
+  mDisk.Media.ReadOnly=TRUE;
+  mDisk.Media.WriteCaching=FALSE;
+  mDisk.Media.BlockSize=mDisk.Lk.BlockSize;
+  mDisk.Media.IoAlign=mDisk.Lk.IoAlignment;
+  mDisk.Media.LastBlock=mDisk.Lk.NumberOfBlocks-1;
+  mDisk.Media.LogicalBlocksPerPhysicalBlock=1;
+  mDisk.Media.OptimalTransferLengthGranularity=1;
+  mDisk.Io.Revision=EFI_BLOCK_IO_PROTOCOL_REVISION3;
+  mDisk.Io.Media=&mDisk.Media;
+  mDisk.Io.Reset=LkReset;
+  mDisk.Io.ReadBlocks=LkRead;
+  mDisk.Io.WriteBlocks=LkWrite;
+  mDisk.Io.FlushBlocks=LkFlush;
+  mDisk.Path.Vendor.Header.Type=HARDWARE_DEVICE_PATH;
+  mDisk.Path.Vendor.Header.SubType=HW_VENDOR_DP;
+  mDisk.Path.Vendor.Header.Length[0]=sizeof(VENDOR_DEVICE_PATH);
+  mDisk.Path.Vendor.Header.Length[1]=0;
+  CopyMem(&mDisk.Path.Vendor.Guid,&mDiskPathGuid,sizeof(EFI_GUID));
+  mDisk.Path.End.Type=END_DEVICE_PATH_TYPE;
+  mDisk.Path.End.SubType=END_ENTIRE_DEVICE_PATH_SUBTYPE;
+  mDisk.Path.End.Length[0]=sizeof(EFI_DEVICE_PATH_PROTOCOL);
+  mDisk.Path.End.Length[1]=0;
+  Status=gBS->InstallMultipleProtocolInterfaces(
+    &mDisk.Handle,
+    &gEfiBlockIoProtocolGuid,&mDisk.Io,
+    &gEfiDevicePathProtocolGuid,&mDisk.Path,NULL);
+  if (!EFI_ERROR(Status)) {
+    mPublished=TRUE;
+    DEBUG((DEBUG_INFO,"J250F eMMC: UEFI BlockIo published: %Lu sectors\n",
+      (UINT64)mDisk.Lk.NumberOfBlocks));
+  }
+  return Status;
+}
+
+EFI_STATUS EFIAPI J250fLkEmmcEntry(
+  IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable
+) {
+  EFI_STATUS Status;
+  CHAR8 Text[256];
+  UINTN Len, Second;
+  (VOID)ImageHandle;(VOID)SystemTable;
+  // DEPEX guarantees CPU/GOP/power readiness. No callback can outlive this
+  // image if initialization returns an error and DXE unloads it.
+  SerialPortInitialize();
+  FbConStartScreen();
+  Len=AsciiSPrint(Text,sizeof(Text),"J250F: initializing eMMC (one-bit, 400kHz)...\r\n");
+  SerialPortWrite((UINT8*)Text,Len);
+  Status=InstallDisk();
+  Len=AsciiSPrint(Text,sizeof(Text),
+    "eMMC disk initialization: %r\r\nBlock IO published: %a\r\n"
+    "Holding result for 90 seconds.\r\n",Status,mPublished?"YES (read-only)":"NO");
+  SerialPortWrite((UINT8*)Text,Len);
+  for(Second=0;Second<90;++Second)gBS->Stall(1000000);
+  return Status;
+}

@@ -1,0 +1,37 @@
+## @file
+# J250F MSM8917 read-only Qualcomm SDCC1 firmware driver.
+# Source-level adaptation audited against LK, GPL-2.0-only.
+[Defines]
+  INF_VERSION = 0x00010017
+  BASE_NAME = J250fLkEmmcDxe
+  FILE_GUID = e884aa92-27e0-4bb7-b04a-97960629a25f
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 0.2
+  ENTRY_POINT = J250fLkEmmcEntry
+[Sources]
+  J250fLkEmmcDxe.c
+  J250fLkBackend.c
+  Core/j250f_emmc.c
+  Core/j250f_board.c
+[Packages]
+  MdePkg/MdePkg.dec
+  QcomPkg/QcomPkg.dec
+  J250fPkg/J250fPkg.dec
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  IoLib
+  TimerLib
+  SerialPortLib
+  PrintLib
+[Protocols]
+  gEfiCpuArchProtocolGuid
+  gEfiGraphicsOutputProtocolGuid
+  gJ250fEmmcPowerProtocolGuid  ## CONSUMES
+  gEfiBlockIoProtocolGuid      ## PRODUCES
+  gEfiDevicePathProtocolGuid   ## PRODUCES
+[Depex]
+  gEfiCpuArchProtocolGuid AND gEfiGraphicsOutputProtocolGuid AND gJ250fEmmcPowerProtocolGuid

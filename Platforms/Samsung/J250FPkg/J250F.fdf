@@ -55,7 +55,8 @@ READ_LOCK_STATUS   = TRUE
 
   !include Include/APRIORI.inc
   !include Include/DXE.inc
-  INF J250FPkg/Drivers/QualcommSdhciDxe/QualcommSdhciDxe.inf
+  INF J250fPkg/PlatformIntegration/J250fPowerDxe.inf
+  INF J250fPkg/J250fEmmcDxe/J250fLkEmmcDxe.inf
   !include Include/RAW.inc
 
   # Secure Boot Key Enroll

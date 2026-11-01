@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0-only
+[Defines]
+  INF_VERSION = 0x00010005
+  BASE_NAME = J250fSdccPlatformLib
+  FILE_GUID = c6cc0b57-a3a4-4159-8ed0-482c5067a422
+  MODULE_TYPE = BASE
+  VERSION_STRING = 0.1
+  LIBRARY_CLASS = J250fSdccPlatformLib
+[Sources]
+  J250fSdccPlatformLib.c
+[Packages]
+  MdePkg/MdePkg.dec
+  QcomPkg/QcomPkg.dec
+[LibraryClasses]
+  IoLib
+  TimerLib

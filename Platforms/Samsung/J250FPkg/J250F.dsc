@@ -34,6 +34,7 @@
   *_*_*_CC_FLAGS = -DDISPLAY_USES_RGBA=$(DISPLAY_USES_RGBA)
 
 [LibraryClasses.common]
+  J250fSdccPlatformLib|GPLDrivers/Library/J250fSdccPlatformLib/J250fSdccPlatformLib.inf
   PlatformMemoryMapLib|J250FPkg/Library/PlatformMemoryMapLib/PlatformMemoryMapLib.inf
   KeypadDeviceImplLib|J250FPkg/Library/KeypadDeviceImplLib/KeypadDeviceImplLib.inf
 
@@ -67,7 +68,8 @@
   gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80000002
 
 [Components.common]
-  J250FPkg/Drivers/QualcommSdhciDxe/QualcommSdhciDxe.inf
+  J250fPkg/PlatformIntegration/J250fPowerDxe.inf
+  J250fPkg/J250fEmmcDxe/J250fLkEmmcDxe.inf
   # Keypad Drivers
   QcomPkg/Drivers/KeypadDxe/KeypadDxe.inf
   QcomPkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf

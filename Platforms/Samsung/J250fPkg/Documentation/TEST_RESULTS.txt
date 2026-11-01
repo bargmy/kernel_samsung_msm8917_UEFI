@@ -1,0 +1,38 @@
+make: Entering directory '/mnt/data/J250fMuPkg'
+./J250fEmmcDxe/Tests/test_regressions
+PASS: initialization, power handshake, 8-bit eMMC, partition, PIO I/O, sector safety
+PASS: failed PMIC callback never acknowledges power success
+PASS: failed TLMM pin callback returns BUS_FAIL
+PASS: command timeout without infinite loop
+PASS: data CRC error reports failure
+PASS: MSM8917 GCC M/N/D clocks + TLMM SDC1 active/sleep fields
+All tests passed.
+PASS: CMD6 R1_CARD_IS_LOCKED is rejected
+PASS: Qualcomm R1b-only spurious DAT_TIMEOUT quirk handled
+PASS: R1b quirk does not mask unrelated controller CRC errors
+All J250F Project Mu transport regressions passed.
+./J250fEmmcDxe/Tests/test_uefi
+PASS: DXE publication, power-provider failure, BlockIo read/write/media/reset protocol
+clang --target=armv7a-none-eabi -ffreestanding -std=c11 -O2 -Wall -Wextra -Werror -IJ250fEmmcDxe/Include -c J250fEmmcDxe/Core/j250f_emmc.c -o J250fEmmcDxe/Tests/emmc_arm32.o
+clang --target=armv7a-none-eabi -ffreestanding -std=c11 -O2 -Wall -Wextra -Werror -IJ250fEmmcDxe/Include -c J250fEmmcDxe/Core/j250f_board.c -o J250fEmmcDxe/Tests/board_arm32.o
+clang --target=armv7a-none-eabi -ffreestanding -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -fsyntax-only -IJ250fEmmcDxe/Tests/edk_stub -IJ250fEmmcDxe/Include J250fEmmcDxe/J250fEmmcDxe.c
+cc -std=c11 -O2 -g -Wall -Wextra -Werror -pedantic -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -IJ250fEmmcDxe/Include J250fEmmcDxe/Tests/test_regressions.c J250fEmmcDxe/Core/j250f_emmc.c J250fEmmcDxe/Core/j250f_board.c -o J250fEmmcDxe/Tests/test_sanitizer
+ASAN_OPTIONS=detect_leaks=1 ./J250fEmmcDxe/Tests/test_sanitizer
+PASS: initialization, power handshake, 8-bit eMMC, partition, PIO I/O, sector safety
+PASS: failed PMIC callback never acknowledges power success
+PASS: failed TLMM pin callback returns BUS_FAIL
+PASS: command timeout without infinite loop
+PASS: data CRC error reports failure
+PASS: MSM8917 GCC M/N/D clocks + TLMM SDC1 active/sleep fields
+All tests passed.
+PASS: CMD6 R1_CARD_IS_LOCKED is rejected
+PASS: Qualcomm R1b-only spurious DAT_TIMEOUT quirk handled
+PASS: R1b quirk does not mask unrelated controller CRC errors
+All J250F Project Mu transport regressions passed.
+make: Leaving directory '/mnt/data/J250fMuPkg'
+
+Additional checks (local test headers, NOT EDK II):
+- Clang ARMv7 DXE wrapper compiled to ELF32 ARM relocatable object.
+- Clang AArch64 DXE wrapper and transport compiled to ELF64 ARM relocatable objects.
+- Native mock UEFI integration also passed with ASan + UBSan.
+- No complete EDK II / Project Mu build was available; no .efi produced.

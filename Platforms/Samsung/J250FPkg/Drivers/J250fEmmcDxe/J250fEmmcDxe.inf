@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+[Defines]
+  INF_VERSION = 0x00010005
+  BASE_NAME = J250fEmmcDxe
+  FILE_GUID = 93ec7670-3a31-4591-a1c7-81f5475128b4
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT = EmmcEntry
+[Sources]
+  J250fEmmcDxe.c
+[Packages]
+  MdePkg/MdePkg.dec
+  QcomPkg/QcomPkg.dec
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  IoLib
+  BaseMemoryLib
+  DebugLib
+  PrintLib
+  SerialPortLib
+  J250fSdccPlatformLib
+[Protocols]
+  gEfiCpuArchProtocolGuid
+  gEfiGraphicsOutputProtocolGuid
+  gEfiBlockIoProtocolGuid
+  gEfiDevicePathProtocolGuid
+[Depex]
+  gEfiCpuArchProtocolGuid AND gEfiGraphicsOutputProtocolGuid

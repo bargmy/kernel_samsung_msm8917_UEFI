@@ -29,6 +29,7 @@ enum FbConMsgType {
 };
 
 void ResetFb(void);
+void FbConStartScreen(void);
 
 UINTN
 EFIAPI

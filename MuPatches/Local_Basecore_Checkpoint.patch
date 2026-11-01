@@ -1,0 +1,163 @@
+diff --git a/BaseTools/Conf/tools_def.template b/BaseTools/Conf/tools_def.template
+index 04eeaa62a0..4fbd2bba0b 100755
+--- a/BaseTools/Conf/tools_def.template
++++ b/BaseTools/Conf/tools_def.template
+@@ -277,33 +277,33 @@ DEFINE DTC_BIN                 = ENV(DTC_PREFIX)dtc
+ #                               https://acpica.org/downloads
+ #
+ #   GCC48       -Linux,Windows-  Requires:
+-#                             GCC 4.8 targeting x86_64-linux-gnu, aarch64-linux-gnu, or arm-linux-gnueabi
++#                             GCC 4.8 targeting x86_64-linux-gnu, aarch64-linux-gnu, or arm-linux-gnueabihf
+ #                        Optional:
+ #                             Required to build platforms or ACPI tables:
+ #                               Intel(r) ACPI Compiler from
+ #                               https://acpica.org/downloads
+ #   GCC49       -Linux,Windows-  Requires:
+-#                             GCC 4.9 targeting x86_64-linux-gnu, aarch64-linux-gnu, or arm-linux-gnueabi
++#                             GCC 4.9 targeting x86_64-linux-gnu, aarch64-linux-gnu, or arm-linux-gnueabihf
+ #                        Optional:
+ #                             Required to build platforms or ACPI tables:
+ #                               Intel(r) ACPI Compiler from
+ #                               https://acpica.org/downloads
+ #   GCC5        -Linux,Windows-  Requires:
+-#                             GCC 5 with LTO support, targeting x86_64-linux-gnu, aarch64-linux-gnu, arm-linux-gnueabi, riscv64-linux-gnu or loongarch64-linux-gnu
++#                             GCC 5 with LTO support, targeting x86_64-linux-gnu, aarch64-linux-gnu, arm-linux-gnueabihf, riscv64-linux-gnu or loongarch64-linux-gnu
+ #                        Optional:
+ #                             Required to build platforms or ACPI tables:
+ #                               Intel(r) ACPI Compiler from
+ #                               https://acpica.org/downloads
+ #
+ #   CLANG35     -Linux,Windows-  Requires:
+-#                             Clang v3.5 or later, and GNU binutils targeting aarch64-linux-gnu or arm-linux-gnueabi
++#                             Clang v3.5 or later, and GNU binutils targeting aarch64-linux-gnu or arm-linux-gnueabihf
+ #                        Optional:
+ #                             Required to build platforms or ACPI tables:
+ #                               Intel(r) ACPI Compiler from
+ #                               https://acpica.org/downloads
+ #   CLANG38  -Linux-  Requires:
+-#                             Clang v3.8, LLVMgold plugin and GNU binutils 2.26 targeting x86_64-linux-gnu, aarch64-linux-gnu or arm-linux-gnueabi
+-#                             Clang v3.9 or later, LLVMgold plugin and GNU binutils 2.28 targeting x86_64-linux-gnu, aarch64-linux-gnu or arm-linux-gnueabi
++#                             Clang v3.8, LLVMgold plugin and GNU binutils 2.26 targeting x86_64-linux-gnu, aarch64-linux-gnu or arm-linux-gnueabihf
++#                             Clang v3.9 or later, LLVMgold plugin and GNU binutils 2.28 targeting x86_64-linux-gnu, aarch64-linux-gnu or arm-linux-gnueabihf
+ #                        Optional:
+ #                             Required to build platforms or ACPI tables:
+ #                               Intel(r) ACPI Compiler from
+@@ -2700,7 +2700,7 @@ RELEASE_GCC5_LOONGARCH64_CC_FLAGS       = DEF(GCC5_LOONGARCH64_CC_FLAGS) -Wno-un
+ *_CLANG35_*_ASLDLINK_PATH        = ENV(CLANG35_BIN)clang
+ *_CLANG35_*_DEPS_FLAGS           = DEF(GCC_DEPS_FLAGS)
+ 
+-DEFINE CLANG35_ARM_TARGET        = -target arm-linux-gnueabi
++DEFINE CLANG35_ARM_TARGET        = -target arm-linux-gnueabihf
+ DEFINE CLANG35_AARCH64_TARGET    = -target aarch64-linux-gnu
+ 
+ DEFINE CLANG35_WARNING_OVERRIDES = -Wno-parentheses-equality -Wno-tautological-compare -Wno-tautological-constant-out-of-range-compare -Wno-empty-body -Wno-unknown-warning-option -Wno-unused-but-set-variable -Wno-unused-const-variable
+@@ -2853,7 +2853,7 @@ NOOPT_CLANG38_X64_DLINK2_FLAGS     = DEF(GCC5_X64_DLINK2_FLAGS) -O0
+ ##################
+ # CLANG38 ARM definitions
+ ##################
+-DEFINE CLANG38_ARM_TARGET        = -target arm-linux-gnueabi
++DEFINE CLANG38_ARM_TARGET        = -target arm-linux-gnueabihf
+ DEFINE CLANG38_ARM_CC_FLAGS      = DEF(GCC_ARM_CC_FLAGS) DEF(CLANG38_ARM_TARGET) DEF(CLANG38_WARNING_OVERRIDES) -mno-movt
+ DEFINE CLANG38_ARM_DLINK_FLAGS   = DEF(CLANG38_ARM_TARGET) DEF(GCC_ARM_DLINK_FLAGS)
+ 
+diff --git a/BaseTools/Source/C/GenFw/Elf32Convert.c b/BaseTools/Source/C/GenFw/Elf32Convert.c
+index de198e58db..c0905d734c 100644
+--- a/BaseTools/Source/C/GenFw/Elf32Convert.c
++++ b/BaseTools/Source/C/GenFw/Elf32Convert.c
+@@ -829,6 +829,7 @@ WriteSections32 (
+           case R_ARM_TLS_GD32:
+           case R_ARM_TLS_LDM32:
+           case R_ARM_TLS_IE32:
++          case 4: /* R_ARM_PC13 / R_ARM_LDR_PC_G0 */
+             // Thease are all PC-relative relocations and don't require modification
+             // GCC does not seem to have the concept of a application that just needs to get relocated.
+             break;
+@@ -955,6 +956,7 @@ WriteRelocations32 (
+             case R_ARM_TLS_GD32:
+             case R_ARM_TLS_LDM32:
+             case R_ARM_TLS_IE32:
++            case 4: /* R_ARM_PC13 / R_ARM_LDR_PC_G0 */
+               // Thease are all PC-relative relocations and don't require modification
+               break;
+ 
+diff --git a/MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsole.c b/MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsole.c
+index cea0b28ba7..9797078346 100644
+--- a/MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsole.c
++++ b/MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsole.c
+@@ -265,9 +265,10 @@ InitializeGraphicsConsoleTextMode (
+   MaxRows    = VerticalResolution / EFI_GLYPH_HEIGHT;
+ 
+   //
+-  // According to UEFI spec, all output devices support at least 80x25 text mode.
++  // Ensure the display can support at least some text columns and rows.
++  // For mobile portrait displays (e.g. 540x960), MaxColumns is 67 (< 80).
+   //
+-  ASSERT ((MaxColumns >= 80) && (MaxRows >= 25));
++  ASSERT ((MaxColumns > 0) && (MaxRows > 0));
+ 
+   //
+   // Add full screen mode to the last entry.
+@@ -295,31 +296,43 @@ InitializeGraphicsConsoleTextMode (
+   // MU_CHANGE [END] - CodeQL change
+ 
+   //
+-  // Mode 0 and mode 1 is for 80x25, 80x50 according to UEFI spec.
++  // Mode 0 and mode 1:
++  // For standard displays, mode 0 is 80x25 and mode 1 is 80x50.
++  // For narrow portrait displays (< 80 columns), mode 0 is MaxColumns x 25.
+   //
+   ValidCount = 0;
+ 
+-  NewModeBuffer[ValidCount].Columns       = 80;
+-  NewModeBuffer[ValidCount].Rows          = 25;
+-  NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
+-  NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
+-  NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
+-  NewModeBuffer[ValidCount].DeltaX        = (HorizontalResolution - (NewModeBuffer[ValidCount].Columns * EFI_GLYPH_WIDTH)) >> 1;
+-  NewModeBuffer[ValidCount].DeltaY        = (VerticalResolution - (NewModeBuffer[ValidCount].Rows * EFI_GLYPH_HEIGHT)) >> 1;
+-  ValidCount++;
+-
+-  if ((MaxColumns >= 80) && (MaxRows >= 50)) {
+-    NewModeBuffer[ValidCount].Columns = 80;
+-    NewModeBuffer[ValidCount].Rows    = 50;
+-    NewModeBuffer[ValidCount].DeltaX  = (HorizontalResolution - (80 * EFI_GLYPH_WIDTH)) >> 1;
+-    NewModeBuffer[ValidCount].DeltaY  = (VerticalResolution - (50 * EFI_GLYPH_HEIGHT)) >> 1;
++  if (MaxColumns < 80) {
++    NewModeBuffer[ValidCount].Columns       = MaxColumns;
++    NewModeBuffer[ValidCount].Rows          = (MaxRows < 25) ? MaxRows : 25;
++    NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
++    NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
++    NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
++    NewModeBuffer[ValidCount].DeltaX        = (HorizontalResolution - (NewModeBuffer[ValidCount].Columns * EFI_GLYPH_WIDTH)) >> 1;
++    NewModeBuffer[ValidCount].DeltaY        = (VerticalResolution - (NewModeBuffer[ValidCount].Rows * EFI_GLYPH_HEIGHT)) >> 1;
++    ValidCount++;
++  } else {
++    NewModeBuffer[ValidCount].Columns       = 80;
++    NewModeBuffer[ValidCount].Rows          = 25;
++    NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
++    NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
++    NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
++    NewModeBuffer[ValidCount].DeltaX        = (HorizontalResolution - (NewModeBuffer[ValidCount].Columns * EFI_GLYPH_WIDTH)) >> 1;
++    NewModeBuffer[ValidCount].DeltaY        = (VerticalResolution - (NewModeBuffer[ValidCount].Rows * EFI_GLYPH_HEIGHT)) >> 1;
++    ValidCount++;
++
++    if ((MaxColumns >= 80) && (MaxRows >= 50)) {
++      NewModeBuffer[ValidCount].Columns       = 80;
++      NewModeBuffer[ValidCount].Rows          = 50;
++      NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
++      NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
++      NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
++      NewModeBuffer[ValidCount].DeltaX        = (HorizontalResolution - (80 * EFI_GLYPH_WIDTH)) >> 1;
++      NewModeBuffer[ValidCount].DeltaY        = (VerticalResolution - (50 * EFI_GLYPH_HEIGHT)) >> 1;
++      ValidCount++;
++    }
+   }
+ 
+-  NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
+-  NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
+-  NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
+-  ValidCount++;
+-
+   //
+   // Start from mode 2 to put the valid mode other than 80x25 and 80x50 in the output mode buffer.
+   //

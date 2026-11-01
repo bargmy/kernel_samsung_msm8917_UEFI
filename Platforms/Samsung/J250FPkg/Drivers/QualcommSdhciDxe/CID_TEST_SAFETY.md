@@ -14,8 +14,10 @@ be sent otherwise. These writes change volatile host/card state; they **do not
 target eMMC data sectors**.
 
 Only these host registers are written:
+- `0x0782492f` SDHCI_SOFTWARE_RESET, command-line reset bit only, once before CMD0 if CMD inhibit persists without DAT inhibit. No card reset pin is asserted.
 - `0x0782492c` SDHCI_CLOCK_CONTROL (slow clock)
 - `0x07824930` SDHCI_INT_STATUS (W1C)
+- `0x07824934` SDHCI_INT_ENABLE (command/error status latching; restored on exit)
 - `0x07824908` SDHCI_ARGUMENT
 - `0x0782490e` SDHCI_COMMAND
 
@@ -62,3 +64,20 @@ the test because CMD0 leaves the eMMC in its volatile initialization state.
   only; no GPL code copied.
 
 This experiment is not a finished SDHCI, filesystem, or Windows Phone driver.
+
+## Legacy identification timing update
+
+Before identification the driver stops SDCLK, selects Qualcomm default MCLK,
+clears HS400 input override and clock power-save in host +0x10c, clears
+host-control2 (+0x3e) UHS/tuning/preset bits, and clears host-control (+0x28)
+high-speed and bus-width bits. Voltage/pad-power and PMIC settings are preserved.
+The maximum v3 divider (1023, divide-by-2046) replaces the broken CAPS base-clock
+calculation. The Samsung J250F DTS maximum source rate is 384 MHz. These timing
+changes are not restored; power-cycle after testing. Hardware verification pending.
+
+## Qualcomm host frontend enable
+
+Before identification V6 sets core HC_MODE (+0x78) HC_MODE_EN (bit 0) and
+FF_CLK_SW_RST_DIS (bit 13), preserving other bits, following Samsung probe.
+A readback must contain both bits or the test stops before card commands.
+This is an additional volatile core-register write; power-cycle after test.

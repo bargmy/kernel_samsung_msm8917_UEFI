@@ -113,3 +113,6 @@
 
   # UART
   gQcomPkgTokenSpaceGuid.PcdUartSerialBase|0|UINT32|0x0000a500
+
+[LibraryClasses]
+  J250fSdccPlatformLib|Include/Library/J250fSdccPlatformLib.h

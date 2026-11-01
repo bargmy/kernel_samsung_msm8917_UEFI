@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: GPL-2.0-only
+[Defines]
+  INF_VERSION = 0x00010017
+  BASE_NAME = J250fPowerDxe
+  FILE_GUID = 8dc751c9-59ca-4488-914d-8d3377f97231
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT = J250fPowerEntry
+[Sources]
+  J250fPowerDxe.c
+  RpmSmd.c
+  SmemMap.c
+[Packages]
+  MdePkg/MdePkg.dec
+  QcomPkg/QcomPkg.dec
+  J250fPkg/J250fPkg.dec
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  IoLib
+  BaseLib
+  BaseMemoryLib
+  TimerLib
+  SerialPortLib
+  PrintLib
+  DxeServicesTableLib
+[Protocols]
+  gEfiCpuArchProtocolGuid
+  gEfiGraphicsOutputProtocolGuid
+  gJ250fEmmcPowerProtocolGuid
+[Depex]
+  gEfiCpuArchProtocolGuid AND gEfiGraphicsOutputProtocolGuid

@@ -1,0 +1,10 @@
+{
+  "input_archive": "J250F_ProjectMu_eMMC_Actual_Backend_Source.zip",
+  "sha256": "4d04450624bf046bd74b56100d963e0a9b94adf3f58786d93de134554f81d10c",
+  "base_mu_commit": "47ea497e19020dc7da592e4720ef234ac7075021",
+  "samsung_kernel_commit": "d8e6e0d79bf4e26a11d5f69c843a6ad096b2b181",
+  "active_frontend": "J250fEmmcDxe/J250fLkEmmcDxe.inf",
+  "power_provider": "PlatformIntegration/J250fPowerDxe.inf",
+  "policy": "one-bit 400kHz, no CMD6/writes, LBA0 required, 90s status",
+  "hardware_validation": "pending; no success claimed"
+}
