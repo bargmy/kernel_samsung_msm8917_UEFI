@@ -65,17 +65,22 @@ SerialPortInitialize(VOID)
 
 void ResetFb(void)
 {
-  // Clear current screen row by row respecting stride.
   if (gStride == 0) {
     gStride = gWidth;
   }
 
-  UINT32 *Line = (UINT32 *)DisplayMemoryRegion.Address;
+  UINTN BytesPerPixel = gBpp / 8;
+  if (BytesPerPixel == 0) {
+    BytesPerPixel = 3;
+  }
+
+  UINT8 *Line = (UINT8 *)DisplayMemoryRegion.Address;
+  UINTN LinePitch = gStride * BytesPerPixel;
+  UINTN RowBytes = gWidth * BytesPerPixel;
+
   for (UINTN y = 0; y < gHeight; y++) {
-    for (UINTN x = 0; x < gWidth; x++) {
-      Line[x] = FB_BGRA8888_BLACK;
-    }
-    Line += gStride;
+    ZeroMem (Line, RowBytes);
+    Line += LinePitch;
   }
 }
 
@@ -86,8 +91,8 @@ void FbConReset(void)
   m_MaxPosition.y = (gHeight - 1) / FONT_HEIGHT;
 
   // Reset color.
-  m_Color.Foreground = FB_BGRA8888_WHITE;
-  m_Color.Background = FB_BGRA8888_BLACK;
+  m_Color.Foreground = 0x00FFFFFF;
+  m_Color.Background = 0x00000000;
 }
 
 void FbConPutCharWithFactor(char c, int type, unsigned scale_factor)
@@ -125,12 +130,17 @@ paint:
     gStride = gWidth;
   }
 
+  UINTN BytesPerPixel = gBpp / 8;
+  if (BytesPerPixel == 0) {
+    BytesPerPixel = 3;
+  }
+
   Pixels = (void *)DisplayMemoryRegion.Address;
-  Pixels += p_Position->y * ((gBpp / 8) * FONT_HEIGHT * gStride);
-  Pixels += p_Position->x * scale_factor * ((gBpp / 8) * (FONT_WIDTH + 1));
+  Pixels += p_Position->y * (BytesPerPixel * FONT_HEIGHT * gStride);
+  Pixels += p_Position->x * scale_factor * (BytesPerPixel * (FONT_WIDTH + 1));
 
   FbConDrawglyph(
-      Pixels, gStride, (gBpp / 8), font5x12 + (c - 32) * 2, scale_factor);
+      Pixels, gStride, BytesPerPixel, font5x12 + (c - 32) * 2, scale_factor);
 
   p_Position->x++;
 
@@ -167,96 +177,41 @@ void FbConDrawglyph(
     char *pixels, unsigned stride, unsigned bpp, unsigned *glyph,
     unsigned scale_factor)
 {
-  char *       bg_pixels = pixels;
-  unsigned     x, y, i, j, k;
-  unsigned     data, temp;
+  unsigned line_pitch = stride * bpp;
+  unsigned char_box_width = (FONT_WIDTH + 1) * scale_factor;
+  unsigned total_rows = FONT_HEIGHT * scale_factor;
+  unsigned r, font_y, bit_row, data, font_x, j, k, pixel_x;
   unsigned int fg_color = m_Color.Foreground;
-  unsigned int bg_color = m_Color.Background;
-  stride -= FONT_WIDTH * scale_factor;
 
-  for (y = 0; y < FONT_HEIGHT / 2; ++y) {
-    for (i = 0; i < scale_factor; i++) {
-      for (x = 0; x < FONT_WIDTH; ++x) {
-        for (j = 0; j < scale_factor; j++) {
-          bg_color = m_Color.Background;
-          for (k = 0; k < bpp; k++) {
-            *bg_pixels = (unsigned char)bg_color;
-            bg_color   = bg_color >> 8;
-            bg_pixels++;
-          }
-        }
-      }
-      bg_pixels += (stride * bpp);
+  for (r = 0; r < total_rows; ++r) {
+    char *row_ptr = pixels + (r * line_pitch);
+
+    // Clear background for this character row to black
+    ZeroMem (row_ptr, char_box_width * bpp);
+
+    // Determine font line
+    font_y = r / scale_factor;
+    if (font_y < 6) {
+      bit_row = font_y;
+      data = glyph[0] >> (bit_row * 5);
+    } else {
+      bit_row = font_y - 6;
+      data = glyph[1] >> (bit_row * 5);
     }
-  }
 
-  for (y = 0; y < FONT_HEIGHT / 2; ++y) {
-    for (i = 0; i < scale_factor; i++) {
-      for (x = 0; x < FONT_WIDTH; ++x) {
-        for (j = 0; j < scale_factor; j++) {
-          bg_color = m_Color.Background;
-          for (k = 0; k < bpp; k++) {
-            *bg_pixels = (unsigned char)bg_color;
-            bg_color   = bg_color >> 8;
-            bg_pixels++;
+    // Render foreground pixels
+    for (font_x = 0; font_x < FONT_WIDTH; ++font_x) {
+      if ((data >> font_x) & 1) {
+        for (j = 0; j < scale_factor; ++j) {
+          pixel_x = font_x * scale_factor + j;
+          char *p = row_ptr + (pixel_x * bpp);
+          unsigned int color = fg_color;
+          for (k = 0; k < bpp; ++k) {
+            p[k] = (unsigned char)color;
+            color >>= 8;
           }
         }
       }
-      bg_pixels += (stride * bpp);
-    }
-  }
-
-  data = glyph[0];
-  for (y = 0; y < FONT_HEIGHT / 2; ++y) {
-    temp = data;
-    for (i = 0; i < scale_factor; i++) {
-      data = temp;
-      for (x = 0; x < FONT_WIDTH; ++x) {
-        if (data & 1) {
-          for (j = 0; j < scale_factor; j++) {
-            fg_color = m_Color.Foreground;
-            for (k = 0; k < bpp; k++) {
-              *pixels  = (unsigned char)fg_color;
-              fg_color = fg_color >> 8;
-              pixels++;
-            }
-          }
-        }
-        else {
-          for (j = 0; j < scale_factor; j++) {
-            pixels = pixels + bpp;
-          }
-        }
-        data >>= 1;
-      }
-      pixels += (stride * bpp);
-    }
-  }
-
-  data = glyph[1];
-  for (y = 0; y < FONT_HEIGHT / 2; ++y) {
-    temp = data;
-    for (i = 0; i < scale_factor; i++) {
-      data = temp;
-      for (x = 0; x < FONT_WIDTH; ++x) {
-        if (data & 1) {
-          for (j = 0; j < scale_factor; j++) {
-            fg_color = m_Color.Foreground;
-            for (k = 0; k < bpp; k++) {
-              *pixels  = (unsigned char)fg_color;
-              fg_color = fg_color >> 8;
-              pixels++;
-            }
-          }
-        }
-        else {
-          for (j = 0; j < scale_factor; j++) {
-            pixels = pixels + bpp;
-          }
-        }
-        data >>= 1;
-      }
-      pixels += (stride * bpp);
     }
   }
 }
@@ -267,20 +222,26 @@ void FbConScrollUp(void)
     gStride = gWidth;
   }
 
-  UINT32 *dst = (UINT32 *)DisplayMemoryRegion.Address;
-  UINT32 *src = dst + (gStride * FONT_HEIGHT);
+  UINTN BytesPerPixel = gBpp / 8;
+  if (BytesPerPixel == 0) {
+    BytesPerPixel = 3;
+  }
+
+  UINTN LinePitch = gStride * BytesPerPixel;
+  UINTN RowBytes = gWidth * BytesPerPixel;
+
+  UINT8 *dst = (UINT8 *)DisplayMemoryRegion.Address;
+  UINT8 *src = dst + (LinePitch * FONT_HEIGHT);
 
   for (UINTN y = 0; y < (gHeight - FONT_HEIGHT); y++) {
-    CopyMem (dst, src, gWidth * sizeof(UINT32));
-    dst += gStride;
-    src += gStride;
+    CopyMem (dst, src, RowBytes);
+    dst += LinePitch;
+    src += LinePitch;
   }
 
   for (UINTN y = 0; y < FONT_HEIGHT; y++) {
-    for (UINTN x = 0; x < gWidth; x++) {
-      dst[x] = (UINT32)m_Color.Background;
-    }
-    dst += gStride;
+    ZeroMem (dst, RowBytes);
+    dst += LinePitch;
   }
 
   FbConFlush();
@@ -292,13 +253,14 @@ void FbConFlush(void)
     gStride = gWidth;
   }
 
-  unsigned total_stride  = gStride;
-  unsigned total_y       = gHeight;
-  unsigned bytes_per_bpp = (gBpp / 8);
+  UINTN BytesPerPixel = gBpp / 8;
+  if (BytesPerPixel == 0) {
+    BytesPerPixel = 3;
+  }
 
   WriteBackInvalidateDataCacheRange(
       (void *)DisplayMemoryRegion.Address,
-      (total_stride * total_y * bytes_per_bpp));
+      (gStride * gHeight * BytesPerPixel));
 }
 
 UINTN

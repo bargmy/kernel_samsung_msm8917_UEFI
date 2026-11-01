@@ -175,10 +175,14 @@ SimpleFbDxeInitialize(
   UINT32 MipiFrameBufferAddr   = DisplayMemoryRegion.Address;
   UINT32 MipiFrameBufferWidth  = FixedPcdGet32(PcdMipiFrameBufferWidth);
   UINT32 MipiFrameBufferHeight = FixedPcdGet32(PcdMipiFrameBufferHeight);
+  UINT32 MipiFrameBufferBpp    = FixedPcdGet32(PcdMipiFrameBufferPixelBpp);
   UINT32 MipiFrameBufferStride = FixedPcdGet32(PcdMipiFrameBufferPixelsPerScanLine);
 
   if (MipiFrameBufferStride == 0) {
     MipiFrameBufferStride = MipiFrameBufferWidth;
+  }
+  if (MipiFrameBufferBpp == 0) {
+    MipiFrameBufferBpp = 32;
   }
 
   /* Sanity check */
@@ -221,17 +225,26 @@ SimpleFbDxeInitialize(
   mDisplay.Mode->Info->HorizontalResolution = MipiFrameBufferWidth;
   mDisplay.Mode->Info->VerticalResolution   = MipiFrameBufferHeight;
 
-  /* SimpleFB runs on a8r8g8b8 (VIDEO_BPP32) for WoA devices */
-  UINT32               LineLength = MipiFrameBufferStride * VNBYTES(VIDEO_BPP32);
+  UINT32               BytesPerPixel      = MipiFrameBufferBpp / 8;
+  UINT32               LineLength         = MipiFrameBufferStride * BytesPerPixel;
   UINT32               FrameBufferSize    = LineLength * MipiFrameBufferHeight;
   EFI_PHYSICAL_ADDRESS FrameBufferAddress = MipiFrameBufferAddr;
 
   mDisplay.Mode->Info->PixelsPerScanLine = MipiFrameBufferStride;
+
+  if (MipiFrameBufferBpp == 24) {
+    mDisplay.Mode->Info->PixelFormat = PixelBitMask;
+    mDisplay.Mode->Info->PixelInformation.RedMask      = 0x00FF0000;
+    mDisplay.Mode->Info->PixelInformation.GreenMask    = 0x0000FF00;
+    mDisplay.Mode->Info->PixelInformation.BlueMask     = 0x000000FF;
+    mDisplay.Mode->Info->PixelInformation.ReservedMask = 0;
+  } else {
 #if DISPLAY_USES_RGBA == 1
-  mDisplay.Mode->Info->PixelFormat = PixelRedGreenBlueReserved8BitPerColor;
+    mDisplay.Mode->Info->PixelFormat = PixelRedGreenBlueReserved8BitPerColor;
 #else
-  mDisplay.Mode->Info->PixelFormat = PixelBlueGreenRedReserved8BitPerColor;
+    mDisplay.Mode->Info->PixelFormat = PixelBlueGreenRedReserved8BitPerColor;
 #endif
+  }
   mDisplay.Mode->SizeOfInfo      = sizeof(EFI_GRAPHICS_OUTPUT_MODE_INFORMATION);
   mDisplay.Mode->FrameBufferBase = FrameBufferAddress;
   mDisplay.Mode->FrameBufferSize = FrameBufferSize;
