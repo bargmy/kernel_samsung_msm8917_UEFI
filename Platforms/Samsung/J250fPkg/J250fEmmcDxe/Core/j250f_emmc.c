@@ -151,6 +151,23 @@ int j250f_set_frequency(j250f_emmc *h,uint32_t hz)
     /* Disable the card clock before changing Qualcomm root frequency. */
     w16(h,J250F_REGION_HC,HC_CLOCK,0);
     sync_io(h);
+    /* Legacy timing is already selected for our supported <=25MHz rates.
+     * Verify the inherited mode bits are cleared, preserving 1.8V and other
+     * Host Control 2 fields. */
+    if (hz && hz<=25000000u) {
+        uint16_t ctrl2=h->io.read16(h->context,J250F_REGION_HC,HC_HOST_CONTROL2);
+        if (ctrl2&7u) {
+            w16(h,J250F_REGION_HC,HC_HOST_CONTROL2,(uint16_t)(ctrl2&~7u));
+            sync_io(h);
+        }
+        if (h->io.read16(h->context,J250F_REGION_HC,HC_HOST_CONTROL2)&7u) {
+            h->last_present=r32(h,J250F_REGION_HC,HC_PRESENT);
+            h->last_vendor=r32(h,J250F_REGION_HC,HC_VENDOR_SPEC);
+            h->last_dll=r32(h,J250F_REGION_HC,HC_DLL_CONFIG);
+            h->last_clock=h->io.read16(h->context,J250F_REGION_HC,HC_CLOCK);
+            return J250F_E_IO;
+        }
+    }
     vendor=r32(h,J250F_REGION_HC,HC_VENDOR_SPEC);
     vendor=(vendor&~(VENDOR_MCLK_MASK|2u|(1u<<18)|(7u<<19)))|VENDOR_MCLK_DEFAULT;
     w32(h,J250F_REGION_HC,HC_VENDOR_SPEC,vendor);
@@ -159,13 +176,10 @@ int j250f_set_frequency(j250f_emmc *h,uint32_t hz)
         /* Samsung sdhci_msm_set_uhs_signaling: below 100MHz use feedback
          * clock, not the inherited HS200/HS400 DLL sampling path. Preserve
          * all unrelated vendor bits, assert DLL_RST then DLL_PDN. */
-        uint16_t ctrl2=h->io.read16(h->context,J250F_REGION_HC,HC_HOST_CONTROL2);
         w32(h,J250F_REGION_HC,HC_DLL_CONFIG,
             r32(h,J250F_REGION_HC,HC_DLL_CONFIG)|(1u<<30));
         w32(h,J250F_REGION_HC,HC_DLL_CONFIG,
             r32(h,J250F_REGION_HC,HC_DLL_CONFIG)|(1u<<29));
-        sync_io(h);
-        w16(h,J250F_REGION_HC,HC_HOST_CONTROL2,(uint16_t)(ctrl2&~7u));
         sync_io(h);
     }
     r=h->io.set_clock_hz(h->context,hz);

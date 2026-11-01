@@ -103,3 +103,12 @@ a command if the selector fails readback. This correction has not yet been
 tested on the phone; it is not evidence that eMMC recognition now succeeds.
 The failure path captures the observed vendor, present-state, DLL and clock
 registers before returning without issuing a command.
+
+## Host Control 2 readback
+
+For supported rates at or below 25MHz, setup clears HC2 timing bits `[2:0]`
+only when needed, then verifies that they read back as zero while preserving
+the 1.8V signaling bit. The existing low-speed path already cleared these
+bits; this adds readback checking. The DXE prints HC2, GCCCFG and TLMM after
+host setup and before CMD0. The latest phone result showed the corrected MCLK
+selector but did not include HC2, and the new build has no hardware result yet.

@@ -45,3 +45,19 @@ No command is issued if the MCLK readback does not match. Simulation/build
 success cannot establish that the selected clock source is electrically
 correct on the J250F. A failed readback is now included in the vendor, present,
 DLL and clock diagnostic snapshot before the driver returns.
+
+## Host Control 2 readback and setup log
+
+The latest screenshot supplied in chat reports CMD2 `IRQ=00028000`,
+`VENDOR=00018A1C`, `DLL=6000642C`, and `CLK=0007`. The MCLK selector field is
+now `2`; the screenshot does not show HC2. The current core already cleared
+HC2 timing bits `[2:0]` during low-speed setup, but did not verify the readback.
+The updated code makes that operation conditional for rates at or below 25MHz,
+checks that `[2:0]` read back as zero, and preserves the 1.8V signaling bit.
+
+The DXE backend now prints `HOST_SETUP HC2=... GCCCFG=... TLMM=...` after host
+setup and before it sends CMD0. This identifies the actual timing, GCC clock
+configuration, and pin register values for the next device result. HC2 was not
+shown in the screenshot, so this check is diagnostic; it does not demonstrate
+that a timing-mode mismatch caused the CRC error. The resulting build has not
+been tested on the phone.

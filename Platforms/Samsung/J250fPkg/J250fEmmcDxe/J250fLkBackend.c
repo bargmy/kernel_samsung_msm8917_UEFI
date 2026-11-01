@@ -143,6 +143,15 @@ EFI_STATUS EFIAPI J250fLkBoardOpen(OUT J250F_LK_DISK *Disk) {
   Result=j250f_tlmm_sdcc1_pins(&mBoard,1);
   if (Result) {DEBUG((DEBUG_ERROR,"J250F eMMC: SDC1 TLMM init failed\n"));return EFI_DEVICE_ERROR;}
   Result=j250f_init_host(&mHost,&mOps,NULL);
+  {
+    CHAR8 Text[128];
+    UINTN Len=AsciiSPrint(Text,sizeof(Text),
+      "HOST_SETUP HC2=%04x GCCCFG=%08x TLMM=%08x\r\n",
+      (UINT32)MmioRead16((UINTN)J250F_HC_PHYS+0x3Eu),
+      MmioRead32((UINTN)J250F_GCC_PHYS+0x42008u),
+      MmioRead32((UINTN)J250F_TLMM_PHYS+0x10A000u));
+    SerialPortWrite((UINT8*)Text,Len);
+  }
   if (Result==J250F_OK) Result=j250f_init_card(&mHost);
   if (Result!=J250F_OK) {
     CHAR8 Text[384];
