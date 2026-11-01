@@ -48,7 +48,7 @@
 #define OCR_READY             0x80000000U
 #define OCR_HCS               0x40000000U
 #define OCR_VALID_VOLTAGES    0x00FF8000U
-#define MAX_READ_BLOCKS       16U
+#define MAX_READ_BLOCKS       1024U
 #define SDCC1_RCA             1U
 
 STATIC EFI_BOOT_SERVICES *mBs;
@@ -331,9 +331,10 @@ STATIC EFI_STATUS EFIAPI Read (
 }
 STATIC EFI_STATUS EFIAPI Write (
   EFI_BLOCK_IO_PROTOCOL *This, UINT32 MediaId,
-  EFI_LBA Lba, UINTN BufferSize, CONST VOID *Buffer
+  EFI_LBA Lba, UINTN BufferSize, VOID *Buffer
   )
 {
+  // This protocol is always read-only, independent of Media.ReadOnly.
   return EFI_WRITE_PROTECTED;
 }
 STATIC EFI_STATUS EFIAPI Flush (EFI_BLOCK_IO_PROTOCOL *This) {
