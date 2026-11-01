@@ -67,6 +67,7 @@
   gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80000002
 
 [Components.common]
+  J250FPkg/Drivers/QualcommSdhciDxe/QualcommSdhciDxe.inf
   # Keypad Drivers
   QcomPkg/Drivers/KeypadDxe/KeypadDxe.inf
   QcomPkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf

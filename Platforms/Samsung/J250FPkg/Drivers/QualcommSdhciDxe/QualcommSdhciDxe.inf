@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+[Defines]
+  INF_VERSION = 0x00010005
+  BASE_NAME = QualcommSdhciDxe
+  FILE_GUID = 4664d301-fdc1-4cdf-a780-16ea83b788ef
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT = QualcommSdhciDiagnosticEntry
+[Sources]
+  QualcommSdhciDxe.c
+[Packages]
+  MdePkg/MdePkg.dec
+[LibraryClasses]
+  UefiDriverEntryPoint
+  IoLib
+  PrintLib
+  SerialPortLib
+[Protocols]
+  gEfiCpuArchProtocolGuid
+[Depex]
+  gEfiCpuArchProtocolGuid
