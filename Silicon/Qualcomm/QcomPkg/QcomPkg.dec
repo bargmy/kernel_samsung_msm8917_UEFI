@@ -108,6 +108,7 @@
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferHeight|0|UINT32|0x0000a401
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp|0|UINT32|0x0000a402
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferDelay|0|UINT32|0x0000a403
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelsPerScanLine|0|UINT32|0x0000a404
 
   # UART
   gQcomPkgTokenSpaceGuid.PcdUartSerialBase|0|UINT32|0x0000a500

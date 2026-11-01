@@ -27,6 +27,8 @@
   MemoryMapHelperLib
   PlatformMemoryMapLib
   PlatformPrePiLib
+  TimerLib
+  CacheMaintenanceLib
 
 [Sources.common]
   ArmPlatformLib.c
@@ -49,6 +51,7 @@
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferWidth
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferHeight
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelsPerScanLine
   gQcomPkgTokenSpaceGuid.PcdSmbiosSystemModel
 
 [Ppis]

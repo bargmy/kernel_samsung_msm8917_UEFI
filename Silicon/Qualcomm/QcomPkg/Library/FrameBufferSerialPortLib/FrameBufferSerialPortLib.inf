@@ -16,6 +16,7 @@
 
 [LibraryClasses]
   ArmLib
+  BaseMemoryLib
   PcdLib
   IoLib
   HobLib
@@ -29,3 +30,4 @@
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferHeight
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferDelay
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelsPerScanLine

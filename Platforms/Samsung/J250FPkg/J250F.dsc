@@ -56,10 +56,11 @@
   gQcomPkgTokenSpaceGuid.PcdSmbiosSystemRetailSku|"j2y18lte"
   gQcomPkgTokenSpaceGuid.PcdSmbiosBoardModel|"j2y18lte"
 
-  # Simple FrameBuffer (Samsung 540x960 qHD display panel)
+  # Simple FrameBuffer (Samsung 540x960 qHD display panel, 544 64-byte aligned stride)
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferWidth|540
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferHeight|960
   gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp|32
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelsPerScanLine|544
 
 [Components.common]
   # Keypad Drivers

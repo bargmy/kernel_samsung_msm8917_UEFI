@@ -1,6 +1,7 @@
 #include <PiDxe.h>
 
 #include <Library/ArmLib.h>
+#include <Library/BaseMemoryLib.h>
 #include <Library/TimerLib.h>
 #include <Library/CacheMaintenanceLib.h>
 #include <Library/HobLib.h>
@@ -25,6 +26,7 @@ UINTN gWidth = FixedPcdGet32(PcdMipiFrameBufferWidth);
 // Reserve half screen for output
 UINTN gHeight = FixedPcdGet32(PcdMipiFrameBufferHeight);
 UINTN gBpp    = FixedPcdGet32(PcdMipiFrameBufferPixelBpp);
+UINTN gStride = FixedPcdGet32(PcdMipiFrameBufferPixelsPerScanLine);
 
 // Module-used internal routine
 void FbConPutCharWithFactor(char c, int type, unsigned scale_factor);
@@ -45,8 +47,12 @@ SerialPortInitialize(VOID)
   if (m_Initialized)
     return RETURN_SUCCESS;
 
+  if (gStride == 0) {
+    gStride = gWidth;
+  }
+
   LocateMemoryMapAreaByName("Display Reserved", &DisplayMemoryRegion);
-  p_Position = (FBCON_POSITION*)(DisplayMemoryRegion.Address + (FixedPcdGet32(PcdMipiFrameBufferWidth) * FixedPcdGet32(PcdMipiFrameBufferHeight) * FixedPcdGet32(PcdMipiFrameBufferPixelBpp) / 8));
+  p_Position = (FBCON_POSITION*)(DisplayMemoryRegion.Address + (gStride * FixedPcdGet32(PcdMipiFrameBufferHeight) * FixedPcdGet32(PcdMipiFrameBufferPixelBpp) / 8));
 
   // Reset console
   FbConReset();
@@ -59,21 +65,17 @@ SerialPortInitialize(VOID)
 
 void ResetFb(void)
 {
-  // Clear current screen.
-  char *Pixels  = (void *)DisplayMemoryRegion.Address;
-  UINTN BgColor = FB_BGRA8888_BLACK;
+  // Clear current screen row by row respecting stride.
+  if (gStride == 0) {
+    gStride = gWidth;
+  }
 
-  // Set to black color.
-  for (UINTN i = 0; i < gWidth; i++) {
-    for (UINTN j = 0; j < gHeight; j++) {
-      BgColor = FB_BGRA8888_BLACK;
-      // Set pixel bit
-      for (UINTN p = 0; p < (gBpp / 8); p++) {
-        *Pixels = (unsigned char)BgColor;
-        BgColor = BgColor >> 8;
-        Pixels++;
-      }
+  UINT32 *Line = (UINT32 *)DisplayMemoryRegion.Address;
+  for (UINTN y = 0; y < gHeight; y++) {
+    for (UINTN x = 0; x < gWidth; x++) {
+      Line[x] = FB_BGRA8888_BLACK;
     }
+    Line += gStride;
   }
 }
 
@@ -119,12 +121,16 @@ paint:
   if (intstate)
     ArmDisableInterrupts();
 
+  if (gStride == 0) {
+    gStride = gWidth;
+  }
+
   Pixels = (void *)DisplayMemoryRegion.Address;
-  Pixels += p_Position->y * ((gBpp / 8) * FONT_HEIGHT * gWidth);
+  Pixels += p_Position->y * ((gBpp / 8) * FONT_HEIGHT * gStride);
   Pixels += p_Position->x * scale_factor * ((gBpp / 8) * (FONT_WIDTH + 1));
 
   FbConDrawglyph(
-      Pixels, gWidth, (gBpp / 8), font5x12 + (c - 32) * 2, scale_factor);
+      Pixels, gStride, (gBpp / 8), font5x12 + (c - 32) * 2, scale_factor);
 
   p_Position->x++;
 
@@ -255,20 +261,26 @@ void FbConDrawglyph(
   }
 }
 
-/* TODO: Take stride into account */
 void FbConScrollUp(void)
 {
-  unsigned short *dst   = (void *)DisplayMemoryRegion.Address;
-  unsigned short *src   = dst + (gWidth * FONT_HEIGHT);
-  unsigned        count = gWidth * (gHeight - FONT_HEIGHT);
-
-  while (count--) {
-    *dst++ = *src++;
+  if (gStride == 0) {
+    gStride = gWidth;
   }
 
-  count = gWidth * FONT_HEIGHT;
-  while (count--) {
-    *dst++ = m_Color.Background;
+  UINT32 *dst = (UINT32 *)DisplayMemoryRegion.Address;
+  UINT32 *src = dst + (gStride * FONT_HEIGHT);
+
+  for (UINTN y = 0; y < (gHeight - FONT_HEIGHT); y++) {
+    CopyMem (dst, src, gWidth * sizeof(UINT32));
+    dst += gStride;
+    src += gStride;
+  }
+
+  for (UINTN y = 0; y < FONT_HEIGHT; y++) {
+    for (UINTN x = 0; x < gWidth; x++) {
+      dst[x] = (UINT32)m_Color.Background;
+    }
+    dst += gStride;
   }
 
   FbConFlush();
@@ -276,16 +288,17 @@ void FbConScrollUp(void)
 
 void FbConFlush(void)
 {
-  unsigned total_x, total_y;
-  unsigned bytes_per_bpp;
+  if (gStride == 0) {
+    gStride = gWidth;
+  }
 
-  total_x       = gWidth;
-  total_y       = gHeight;
-  bytes_per_bpp = (gBpp / 8);
+  unsigned total_stride  = gStride;
+  unsigned total_y       = gHeight;
+  unsigned bytes_per_bpp = (gBpp / 8);
 
   WriteBackInvalidateDataCacheRange(
       (void *)DisplayMemoryRegion.Address,
-      (total_x * total_y * bytes_per_bpp));
+      (total_stride * total_y * bytes_per_bpp));
 }
 
 UINTN

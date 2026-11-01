@@ -175,6 +175,11 @@ SimpleFbDxeInitialize(
   UINT32 MipiFrameBufferAddr   = DisplayMemoryRegion.Address;
   UINT32 MipiFrameBufferWidth  = FixedPcdGet32(PcdMipiFrameBufferWidth);
   UINT32 MipiFrameBufferHeight = FixedPcdGet32(PcdMipiFrameBufferHeight);
+  UINT32 MipiFrameBufferStride = FixedPcdGet32(PcdMipiFrameBufferPixelsPerScanLine);
+
+  if (MipiFrameBufferStride == 0) {
+    MipiFrameBufferStride = MipiFrameBufferWidth;
+  }
 
   /* Sanity check */
   if (MipiFrameBufferAddr == 0 || MipiFrameBufferWidth == 0 ||
@@ -217,11 +222,11 @@ SimpleFbDxeInitialize(
   mDisplay.Mode->Info->VerticalResolution   = MipiFrameBufferHeight;
 
   /* SimpleFB runs on a8r8g8b8 (VIDEO_BPP32) for WoA devices */
-  UINT32               LineLength = MipiFrameBufferWidth * VNBYTES(VIDEO_BPP32);
+  UINT32               LineLength = MipiFrameBufferStride * VNBYTES(VIDEO_BPP32);
   UINT32               FrameBufferSize    = LineLength * MipiFrameBufferHeight;
   EFI_PHYSICAL_ADDRESS FrameBufferAddress = MipiFrameBufferAddr;
 
-  mDisplay.Mode->Info->PixelsPerScanLine = MipiFrameBufferWidth;
+  mDisplay.Mode->Info->PixelsPerScanLine = MipiFrameBufferStride;
 #if DISPLAY_USES_RGBA == 1
   mDisplay.Mode->Info->PixelFormat = PixelRedGreenBlueReserved8BitPerColor;
 #else
