@@ -23,9 +23,8 @@
   gArmTokenSpaceGuid.PcdArmArchTimerIntrNum|3
   gArmTokenSpaceGuid.PcdArmArchTimerVirtIntrNum|4
   gArmTokenSpaceGuid.PcdArmArchTimerHypIntrNum|1
-  gArmTokenSpaceGuid.PcdGicDistributorBase|0xB000000
-  gArmTokenSpaceGuid.PcdGicRedistributorsBase|0xB002000
-  gArmTokenSpaceGuid.PcdGicInterruptInterfaceBase|0xB000000
+  gArmTokenSpaceGuid.PcdGicDistributorBase|0x0B000000
+  gArmTokenSpaceGuid.PcdGicInterruptInterfaceBase|0x0B002000
 
   gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemRevision|0x00008917
   gEmbeddedTokenSpaceGuid.PcdInterruptBaseAddress|0xB000000

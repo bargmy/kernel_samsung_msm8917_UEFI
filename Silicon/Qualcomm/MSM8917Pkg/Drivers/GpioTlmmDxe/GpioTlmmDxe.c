@@ -49,7 +49,11 @@ SetGpioConfig(
   Value |= Drvstr << 6;
   Value |= Enable << 9;
 
-  MmioWrite32 (TlmmBaseAddr + 0x1004 + Gpio * 0x10, Value);
+  /* MSM8917 TLMM pin controller: REG_SIZE = 0x1000 per GPIO.
+   * ctl_reg = TLMM_BASE + 0x1000 * Gpio
+   * io_reg  = TLMM_BASE + 0x4 + 0x1000 * Gpio
+   */
+  MmioWrite32 (TlmmBaseAddr + Gpio * 0x1000, Value);
 }
 
 VOID

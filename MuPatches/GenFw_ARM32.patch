@@ -1,0 +1,20 @@
+diff --git a/BaseTools/Source/C/GenFw/Elf32Convert.c b/BaseTools/Source/C/GenFw/Elf32Convert.c
+index de198e58db..c0905d734c 100644
+--- a/BaseTools/Source/C/GenFw/Elf32Convert.c
++++ b/BaseTools/Source/C/GenFw/Elf32Convert.c
+@@ -829,6 +829,7 @@ WriteSections32 (
+           case R_ARM_TLS_GD32:
+           case R_ARM_TLS_LDM32:
+           case R_ARM_TLS_IE32:
++          case 4: /* R_ARM_PC13 / R_ARM_LDR_PC_G0 */
+             // Thease are all PC-relative relocations and don't require modification
+             // GCC does not seem to have the concept of a application that just needs to get relocated.
+             break;
+@@ -955,6 +956,7 @@ WriteRelocations32 (
+             case R_ARM_TLS_GD32:
+             case R_ARM_TLS_LDM32:
+             case R_ARM_TLS_IE32:
++            case 4: /* R_ARM_PC13 / R_ARM_LDR_PC_G0 */
+               // Thease are all PC-relative relocations and don't require modification
+               break;
+ 

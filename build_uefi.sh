@@ -97,9 +97,9 @@ cd ../..
 
 if [ ${_TARGET_ARCH_TYPE} == ARM ]; then
 	# Apply Project Mu Patches if not already applied
-	cp ./MuPatches/Compile.patch ./Mu_Basecore/
 	cd Mu_Basecore
-	git apply --check Compile.patch 2>/dev/null && git apply Compile.patch || true
+	git apply --check ../MuPatches/Compile.patch 2>/dev/null && git apply ../MuPatches/Compile.patch || true
+	git apply --check ../MuPatches/GenFw_ARM32.patch 2>/dev/null && git apply ../MuPatches/GenFw_ARM32.patch || true
 	cd ..
 fi
 
