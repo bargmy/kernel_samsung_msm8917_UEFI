@@ -100,13 +100,18 @@ QualcommSdhciDiagnosticEntry (
   ProbePrint (
     "MMC COMMANDS: NONE | HOST WRITES: NONE | BLOCK IO: NONE\r\n"
     "NOTE: controller state != proof of eMMC access.\r\n"
-    "Photograph these values before proceeding.\r\n"
+    "PHOTO MODE: Results held on-screen for 90 seconds.\r\n"
+    "No video recording required. Boot resumes afterward.\r\n"
     );
 
-  // Briefly hold the image to make it practical to photograph. This is
-  // a Boot Services delay, not a storage operation.
+  // Keep this DXE diagnostic screen visible for a single photo instead of
+  // letting the normal DXE/BDS console immediately scroll it out of view.
+  // Chunk the delay so firmware Stall implementations need only handle 1s.
+  // No MMIO, controller or eMMC access occurs while waiting.
   if (SystemTable != NULL && SystemTable->BootServices != NULL) {
-    SystemTable->BootServices->Stall (3000000);
+    for (UINTN Second = 0; Second < 90; Second++) {
+      SystemTable->BootServices->Stall (1000000);
+    }
   }
 
   return EFI_SUCCESS;
