@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+[Defines]
+  INF_VERSION = 0x00010005
+  BASE_NAME = QualcommReadOnlyEmmcDxe
+  FILE_GUID = e13511ab-0417-4456-8f33-4f62a85197d0
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT = QualcommReadOnlyEmmcEntry
+[Sources]
+  QualcommReadOnlyEmmcDxe.c
+[Packages]
+  MdePkg/MdePkg.dec
+[LibraryClasses]
+  UefiDriverEntryPoint
+  BaseLib
+  BaseMemoryLib
+  IoLib
+  PrintLib
+  SerialPortLib
+  UefiBootServicesTableLib
+[Protocols]
+  gEfiBlockIoProtocolGuid
+  gEfiDevicePathProtocolGuid
+[Depex]
+  TRUE
