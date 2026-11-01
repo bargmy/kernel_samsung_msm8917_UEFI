@@ -20,7 +20,7 @@ claim that the card now initializes.
 The latest ARM32 DEBUG Project Mu firmware was built and packaged as:
 
 - `/workspaces/web-k/Mu-J250F-EMMC-DEBUG.img`
-- SHA-256: `3762279c1afd9ea08b23a496616aae6f59b6e0d624af4bcd447e19f487f67c4e`
+- SHA-256: `7883323f034f4e87d1cd21f95d9519386a69431878ddfe90fc246e38064f443d`
 
 The Android boot header, 256-byte ARM BootShim, 3MiB firmware payload, QCDT
 length, Samsung footer, and 32MiB partition size were checked. Packaging checks
@@ -49,7 +49,9 @@ From Mu-Qcom:
 
     CLANG38_BIN=/usr/bin/ CLANG38_ARM_PREFIX=arm-linux-gnueabihf- GCC5_ARM_PREFIX=arm-linux-gnueabihf- stuart_build -c Platforms/Samsung/J250FPkg/PlatformBuild.py TOOL_CHAIN_TAG=CLANG38 TARGET=DEBUG RAM_SIZE=1.5 FD_BASE=0x99000000 FD_SIZE=0x00300000 FD_BLOCKS=0x300 TARGET_ARCH=ARM
 
-The latest full ARM32 DEBUG build succeeded. Host regression tests were not
+The latest full ARM32 DEBUG build succeeded. If MCLK readback fails, the error
+log now captures the observed vendor, present-state, DLL and clock registers
+before returning without issuing a command. Host regression tests were not
 rerun for the MCLK edit. Earlier simulated checks cover the pad correction and
 other transport paths; simulated responses cannot prove physical eMMC
 communication. No successful J250F storage recognition is claimed.

@@ -43,4 +43,5 @@ there is no phone result from a build containing this correction yet.
 
 No command is issued if the MCLK readback does not match. Simulation/build
 success cannot establish that the selected clock source is electrically
-correct on the J250F.
+correct on the J250F. A failed readback is now included in the vendor, present,
+DLL and clock diagnostic snapshot before the driver returns.

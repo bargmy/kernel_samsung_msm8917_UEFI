@@ -122,14 +122,22 @@ static int ensure_legacy_mclk(j250f_emmc *h)
 {
     uint32_t vendor=r32(h,J250F_REGION_HC,HC_VENDOR_SPEC);
     uint32_t desired=(vendor&~(VENDOR_MCLK_MASK|2u))|VENDOR_MCLK_DEFAULT;
+    uint32_t actual;
 
     if (desired!=vendor) {
         w32(h,J250F_REGION_HC,HC_VENDOR_SPEC,desired);
         sync_io(h);
     }
-    if ((r32(h,J250F_REGION_HC,HC_VENDOR_SPEC)&VENDOR_MCLK_MASK)
-        !=VENDOR_MCLK_DEFAULT)
+    actual=r32(h,J250F_REGION_HC,HC_VENDOR_SPEC);
+    if ((actual&VENDOR_MCLK_MASK)!=VENDOR_MCLK_DEFAULT) {
+        /* The caller will abort before a command; retain the failed readback
+         * and adjacent controller state so the DXE log explains why. */
+        h->last_vendor=actual;
+        h->last_present=r32(h,J250F_REGION_HC,HC_PRESENT);
+        h->last_dll=r32(h,J250F_REGION_HC,HC_DLL_CONFIG);
+        h->last_clock=h->io.read16(h->context,J250F_REGION_HC,HC_CLOCK);
         return J250F_E_IO;
+    }
     return J250F_OK;
 }
 

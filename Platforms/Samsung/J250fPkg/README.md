@@ -101,3 +101,5 @@ setup and again while the host is idle immediately before commands at or below
 50MHz. It preserves the pad-voltage and DLL fields and aborts without sending
 a command if the selector fails readback. This correction has not yet been
 tested on the phone; it is not evidence that eMMC recognition now succeeds.
+The failure path captures the observed vendor, present-state, DLL and clock
+registers before returning without issuing a command.

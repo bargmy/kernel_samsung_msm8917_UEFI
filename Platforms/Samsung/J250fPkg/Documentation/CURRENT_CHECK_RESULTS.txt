@@ -3,7 +3,7 @@ repair after clock setup and before low-speed commands while the host is idle.
 
 Build
 -----
-ARM32 DEBUG Project Mu build: PASS (2026-11-01 22:10 UTC).
+ARM32 DEBUG Project Mu build: PASS (2026-11-01 22:13 UTC).
 Log: /tmp/j250f-mclk-build.log
 
 Android boot-image packaging
@@ -12,13 +12,15 @@ Header, 256-byte ARM BootShim, 3MiB UEFI FD, QCDT size, Samsung footer and
 32MiB partition limit: PASS.
 Image: /workspaces/web-k/Mu-J250F-EMMC-DEBUG.img
 Size: 4,280,340 bytes
-SHA-256: 3762279c1afd9ea08b23a496616aae6f59b6e0d624af4bcd447e19f487f67c4e
+SHA-256: 7883323f034f4e87d1cd21f95d9519386a69431878ddfe90fc246e38064f443d
 
 Tests and hardware
 ------------------
 The host regression suite was not rerun for the MCLK change. Earlier
 simulated checks covered the BUS_ON pad correction and prior RPM/SMEM/read-only
 paths; those do not validate the new MCLK guard or prove hardware behavior.
+An MCLK readback failure now snapshots vendor, present-state, DLL and clock
+registers before returning without issuing a command.
 The latest phone log before this build reported CMD1 timeout, IRQ=00000000,
 VENDOR=0001801C, DLL=6000642C, CLK=0007. No phone result from this build exists.
 No successful CID, capacity, LBA0 read, or Block I/O publication is claimed.
