@@ -1,0 +1,137 @@
+[
+  {
+    "index": 0,
+    "platform_id": "0x12f",
+    "variant_id": "0x8",
+    "subtype_id": "0x0",
+    "soc_rev": "0x0",
+    "offset": 65561,
+    "size": 131127
+  },
+  {
+    "index": 1,
+    "platform_id": "0x0",
+    "variant_id": "0x0",
+    "subtype_id": "0x800",
+    "soc_rev": "0x37000",
+    "offset": 303,
+    "size": 8
+  },
+  {
+    "index": 2,
+    "platform_id": "0x1",
+    "variant_id": "0x0",
+    "subtype_id": "0x10019",
+    "soc_rev": "0x20037",
+    "offset": 0,
+    "size": 0
+  },
+  {
+    "index": 3,
+    "platform_id": "0x37800",
+    "variant_id": "0x37000",
+    "subtype_id": "0x12f",
+    "soc_rev": "0x8",
+    "offset": 2,
+    "size": 0
+  },
+  {
+    "index": 4,
+    "platform_id": "0x10019",
+    "variant_id": "0x20037",
+    "subtype_id": "0x0",
+    "soc_rev": "0x0",
+    "offset": 452608,
+    "size": 227328
+  },
+  {
+    "index": 5,
+    "platform_id": "0x12f",
+    "variant_id": "0x8",
+    "subtype_id": "0x3",
+    "soc_rev": "0x0",
+    "offset": 65561,
+    "size": 131127
+  },
+  {
+    "index": 6,
+    "platform_id": "0x0",
+    "variant_id": "0x0",
+    "subtype_id": "0xa6000",
+    "soc_rev": "0x37000",
+    "offset": 303,
+    "size": 8
+  },
+  {
+    "index": 7,
+    "platform_id": "0x4",
+    "variant_id": "0x0",
+    "subtype_id": "0x10019",
+    "soc_rev": "0x20037",
+    "offset": 0,
+    "size": 0
+  },
+  {
+    "index": 8,
+    "platform_id": "0xdd000",
+    "variant_id": "0x37000",
+    "subtype_id": "0x134",
+    "soc_rev": "0x8",
+    "offset": 0,
+    "size": 0
+  },
+  {
+    "index": 9,
+    "platform_id": "0x10019",
+    "variant_id": "0x20037",
+    "subtype_id": "0x0",
+    "soc_rev": "0x0",
+    "offset": 2048,
+    "size": 225280
+  },
+  {
+    "index": 10,
+    "platform_id": "0x134",
+    "variant_id": "0x8",
+    "subtype_id": "0x1",
+    "soc_rev": "0x0",
+    "offset": 65561,
+    "size": 131127
+  },
+  {
+    "index": 11,
+    "platform_id": "0x0",
+    "variant_id": "0x0",
+    "subtype_id": "0x37800",
+    "soc_rev": "0x37000",
+    "offset": 308,
+    "size": 8
+  },
+  {
+    "index": 12,
+    "platform_id": "0x2",
+    "variant_id": "0x0",
+    "subtype_id": "0x10019",
+    "soc_rev": "0x20037",
+    "offset": 0,
+    "size": 0
+  },
+  {
+    "index": 13,
+    "platform_id": "0x6e800",
+    "variant_id": "0x37800",
+    "subtype_id": "0x134",
+    "soc_rev": "0x8",
+    "offset": 3,
+    "size": 0
+  },
+  {
+    "index": 14,
+    "platform_id": "0x10019",
+    "variant_id": "0x20037",
+    "subtype_id": "0x0",
+    "soc_rev": "0x0",
+    "offset": 679936,
+    "size": 225280
+  }
+]

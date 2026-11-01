@@ -1,6 +1,7 @@
 //
 //  Copyright (c) 2011-2015, ARM Limited. All rights reserved.
 //  Copyright (c) 2019, RUIKAI LIU and MR TUNNEL. All rights reserved.
+//  Copyright (c) 2026, Antigravity low-level ARM firmware engineering.
 //
 //  This program and the accompanying materials
 //  are licensed and made available under the terms and conditions of the BSD License
@@ -19,15 +20,6 @@
 #define LoadConstantToReg(Data, Reg) \
     ldr Reg, =Data
 
-.global _StackBase
-.global _StackSize
-
-_StackBase:
-  .quad FixedPcdGet32(PcdPrePiStackBase)
-
-_StackSize:
-  .quad FixedPcdGet32(PcdPrePiStackSize)
-
 ASM_FUNC(_ModuleEntryPoint)
   /* DeInit Platform */
   bl ASM_PFX(ArmDeInitialize)
@@ -43,13 +35,13 @@ _SetupExceptionVector:
 
 _FillVectors:
   str     r1, [r0, r2]
-  adds    r2, r2, #8      /* Fill every 8 byte */
+  adds    r2, r2, #4      /* Fill every 4 bytes (ARM32 word) */
   cmp     r2, #0x800      /* Vector Table Size */
   bne     _FillVectors
 
 _SetupPrimaryCoreStack:
-  ldr r0, _StackBase     /* Stack base arg0 */
-  ldr r1, _StackSize     /* Stack size arg1 */
+  LoadConstantToReg (FixedPcdGet32(PcdPrePiStackBase), r0)
+  LoadConstantToReg (FixedPcdGet32(PcdPrePiStackSize), r1)
 
   add r4, r0, r1
   add sp, r4, #0
@@ -61,8 +53,8 @@ _EnableCache:
 
 _PrepareArguments:
   mov   r0, r8
-  ldr   r1, _StackBase
-  ldr   r2, _StackSize
+  LoadConstantToReg (FixedPcdGet32(PcdPrePiStackBase), r1)
+  LoadConstantToReg (FixedPcdGet32(PcdPrePiStackSize), r2)
   mov   r3, sp
 
   // Move sec startup address into a data register
@@ -78,4 +70,5 @@ _PrepareArguments:
 _NeverReturn:
   b _NeverReturn
 
+.ltorg
 .align 3

@@ -4,3 +4,10 @@ ImageResources/bootpayload.bin
 Mu-*.img
 Mu-*.tar
 */*/*/__pycache__/
+
+*.img
+*.fd
+*.elf
+*.obj
+*.debug
+*.map

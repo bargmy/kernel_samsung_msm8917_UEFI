@@ -96,10 +96,10 @@ make UEFI_BASE=${TARGET_FD_BASE} UEFI_SIZE=${TARGET_FD_SIZE}||_error "\nFailed t
 cd ../..
 
 if [ ${_TARGET_ARCH_TYPE} == ARM ]; then
-	# Apply Project Mu Patches
+	# Apply Project Mu Patches if not already applied
 	cp ./MuPatches/Compile.patch ./Mu_Basecore/
 	cd Mu_Basecore
-	git apply Compile.patch
+	git apply --check Compile.patch 2>/dev/null && git apply Compile.patch || true
 	cd ..
 fi
 
