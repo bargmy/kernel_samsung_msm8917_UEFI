@@ -8,6 +8,7 @@
 // SDCC_MCI_VERSION offset: Qualcomm U-Boot drivers/mmc/msm_sdhci.c
 //
 #include <Uefi.h>
+#include <Library/BaseLib.h>
 #include <Library/IoLib.h>
 #include <Library/PrintLib.h>
 #include <Library/SerialPortLib.h>
