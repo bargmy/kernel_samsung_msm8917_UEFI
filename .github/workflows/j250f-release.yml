@@ -1,0 +1,133 @@
+name: Build and release J250F images
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: j250f-release-${{ github.ref }}-${{ github.run_number }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Choose a separate release for this version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="j250f-build-${GITHUB_RUN_NUMBER}"
+          fi
+          [[ "$tag" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || exit 1
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [DEBUG, RELEASE]
+    env:
+      BUILD_MODE: ${{ matrix.mode }}
+      BUILD_VERSION: ${{ needs.version.outputs.tag }}
+      CLANG38_BIN: /usr/lib/llvm-18/bin/
+      CLANG38_ARM_PREFIX: arm-linux-gnueabihf-
+      GCC5_ARM_PREFIX: arm-linux-gnueabihf-
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: pip-requirements.txt
+      - name: Install ARM32 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential uuid-dev acpica-tools nasm \
+            gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu clang-18 llvm-18 \
+            llvm-18-dev lld-18 libssl-dev mono-devel nuget
+          python -m pip install -r pip-requirements.txt
+      - name: Build and validate image
+        shell: bash
+        run: bash scripts/ci/build-j250f.sh "$BUILD_MODE" "$BUILD_VERSION"
+      - name: Save versioned image
+        uses: actions/upload-artifact@v4
+        with:
+          name: j250f-image-${{ matrix.mode }}
+          path: dist/*
+          if-no-files-found: error
+      - name: Save build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: j250f-${{ matrix.mode }}-logs
+          path: |
+            j250f-build.log
+            Build/BUILDLOG_J250FPkg.txt
+            Build/J250FPkg-ARM/${{ matrix.mode }}_CLANG38/BUILD_REPORT.TXT
+          if-no-files-found: ignore
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: j250f-image-*
+          merge-multiple: true
+          path: artifacts
+      - name: Publish both images only after both builds succeed
+        shell: bash
+        run: |
+          set -euo pipefail
+          debug="artifacts/Mu-J250F-${RELEASE_TAG}-DEBUG.img"
+          release="artifacts/Mu-J250F-${RELEASE_TAG}-RELEASE.img"
+          test -s "$debug"
+          test -s "$release"
+          (cd artifacts && sha256sum -c "Mu-J250F-${RELEASE_TAG}-DEBUG.img.sha256")
+          (cd artifacts && sha256sum -c "Mu-J250F-${RELEASE_TAG}-RELEASE.img.sha256")
+          cat > notes.md <<EOF
+          Samsung SM-J250F / j2y18lte Project Mu ARM32 UEFI firmware.
+
+          Commit: ${GITHUB_SHA}
+          Build: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+
+          Separate DEBUG and RELEASE images and SHA-256 checksums are attached.
+          DEBUG includes diagnostics and permits unsigned RAM EFI loads without a device path.
+          RELEASE retains normal image verification. Both retain read-only eMMC access and CRC checks.
+          Successful compilation does not establish physical hardware operation.
+          EOF
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            # A rerun may replace assets, but never those of another commit.
+            existing=$(gh release view "$RELEASE_TAG" --json body --jq .body)
+            [[ "$existing" == *"Commit: ${GITHUB_SHA}"* ]] || exit 1
+          else
+            args=()
+            if [[ "$GITHUB_REF_TYPE" != tag ]]; then args+=(--prerelease); fi
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" \
+              --title "J250F ${RELEASE_TAG} — DEBUG and RELEASE" \
+              --notes-file notes.md "${args[@]}"
+          fi
+          gh release upload "$RELEASE_TAG" "$debug" "$debug.sha256" \
+            "$release" "$release.sha256" --clobber
