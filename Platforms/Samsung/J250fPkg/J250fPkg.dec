@@ -9,6 +9,10 @@
 
 [Includes]
   J250fEmmcDxe/Include
+  J250fGopDxe
+
+[LibraryClasses]
+  J250fGopSupportLib|J250fGopDxe/J250fGopSupportLib.h
 
 [Protocols]
   # Platform DXE must install this only after checking actual PM8917 rails.

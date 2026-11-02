@@ -1,0 +1,41 @@
+## @file
+# Share one GOP implementation between the original DXE and ADB recovery.
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+[Defines]
+  INF_VERSION = 0x00010005
+  BASE_NAME = J250fGopSupportLib
+  FILE_GUID = 7a93e9c5-cdf3-4d80-b7c1-8b94d0455919
+  MODULE_TYPE = BASE
+  VERSION_STRING = 0.1
+  LIBRARY_CLASS = J250fGopSupportLib|DXE_DRIVER
+
+[Sources]
+  J250fGopDxe.c
+  J250fMdp32.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  ArmPkg/ArmPkg.dec
+  QcomPkg/QcomPkg.dec
+  J250fPkg/J250fPkg.dec
+
+[LibraryClasses]
+  UefiBootServicesTableLib
+  BaseMemoryLib
+  CacheMaintenanceLib
+  DebugLib
+  PcdLib
+  BaseLib
+  IoLib
+
+[Protocols]
+  gEfiGraphicsOutputProtocolGuid
+  gEfiDevicePathProtocolGuid
+
+[FixedPcd]
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferWidth
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferHeight
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelsPerScanLine
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferAddress

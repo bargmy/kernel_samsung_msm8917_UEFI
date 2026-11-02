@@ -55,6 +55,39 @@ over. The DXE's GOP/CPU/power dependencies must first be satisfied. This debug
 mode holds the DXE entry point until explicit exit; other drivers may not yet
 have dispatched, which can limit protocols available to uploaded applications.
 
+## GOP missing from the running firmware: registration recovery
+
+If `gop status` reports **`LocateProtocol=Not Found` and `handles=0`**,
+the firmware itself has not published GOP; the external EFI app cannot draw
+anything. The earlier inference that the eMMC module's GOP `Depex` guaranteed
+GOP publication was wrong: actual protocol enumeration is authoritative.
+
+This patch moves the existing GOP publisher into a shared EDK II library. The
+normal graphics DXE still attempts early publication. If it is not present,
+the **already-running eMMC/ADB DXE** checks `LocateProtocol` and calls that
+same publisher itself, recording the result on the existing framebuffer
+console:
+
+```
+J250F GOP: already installed, protocol=Success, pointer=...
+J250F GOP: fallback attempted, protocol=Success, pointer=...
+J250F GOP: fallback attempted, protocol=<error>, pointer=...
+```
+
+Run after flashing **a new DEBUG image built from this change**:
+
+```sh
+adb -s J250F-UEFI shell gop status
+adb -s J250F-UEFI shell gop test
+```
+
+Do not run `gop test` if `gop status` fails. A 24-bit `PixelBltOnly` GOP
+(format 3) is a useful first success even if the experimental native BGRX
+transition is not detected. Format 1 and a real 32-bit physical framebuffer
+are needed for later Windows graphics testing. The loader still needs
+filesystem/ACPI bring-up independently. This is a recovery path, not proof
+that the original early DXE dispatch problem is understood.
+
 ## Built-in GOP diagnostics (no external EFI app required)
 
 These commands use EDK II's real Graphics Output Protocol GUID, UEFI service

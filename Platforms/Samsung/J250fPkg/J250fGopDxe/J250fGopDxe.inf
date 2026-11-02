@@ -5,11 +5,10 @@
   FILE_GUID = b41daabb-712c-4e51-8e67-229c0f412581
   MODULE_TYPE = DXE_DRIVER
   VERSION_STRING = 0.1
-  ENTRY_POINT = J250fGopEntry
+  ENTRY_POINT = J250fGopBootEntry
 
 [Sources]
-  J250fGopDxe.c
-  J250fMdp32.c
+  J250fGopBootDxe.c
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -19,6 +18,7 @@
 
 [LibraryClasses]
   UefiDriverEntryPoint
+  J250fGopSupportLib
   UefiBootServicesTableLib
   BaseMemoryLib
   CacheMaintenanceLib

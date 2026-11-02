@@ -24,6 +24,7 @@
   J250fPkg/J250fPkg.dec
 [LibraryClasses]
   UefiDriverEntryPoint
+  J250fGopSupportLib
   UefiBootServicesTableLib
   UefiRuntimeServicesTableLib
   BaseLib
@@ -42,4 +43,4 @@
   gEfiBlockIoProtocolGuid      ## PRODUCES
   gEfiDevicePathProtocolGuid   ## PRODUCES
 [Depex]
-  gEfiCpuArchProtocolGuid AND gEfiGraphicsOutputProtocolGuid AND gJ250fEmmcPowerProtocolGuid
+  gEfiCpuArchProtocolGuid AND gJ250fEmmcPowerProtocolGuid
