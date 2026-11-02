@@ -40,6 +40,10 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/MsNetworkDependencyLib.h>
 #include <Library/PcdLib.h>
 #include <Library/PrintLib.h>
+#include <Library/SerialPortLib.h>
+#if defined(J250F_ADB_RAM_EXECUTION)
+#include <Library/FrameBufferSerialPortLib.h>
+#endif
 #include <Library/PowerServicesLib.h>
 #include <Library/ThermalServicesLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -55,6 +59,14 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 static EFI_EVENT  mPreReadyToBootEvent;
 static EFI_EVENT  mPostReadyToBootEvent;
+
+/* J250F one-partition WP81 BDS diagnostic state. No storage writes. */
+STATIC EFI_GUID mWpEspReadyGuid = {
+  0xd7f18d20, 0x49b1, 0x4e41, {0x8d,0x1a,0x91,0x46,0x6c,0x7e,0x37,0xa2}
+};
+STATIC BOOLEAN mWpBootFF10Attempted = FALSE;
+STATIC EFI_STATUS mWpBootFF10Result = EFI_NOT_READY;
+
 
 CHAR8  mMemoryType[][30] = {
   // Value for PcdMemoryMapTypes
@@ -748,9 +760,6 @@ DeviceBootManagerBeforeConsole (
    * disconnected, and a valid BootFF10 option has been registered.
    * Do NOT infer the mode from BootOrder: BDS can alter that variable.
    */
-  STATIC EFI_GUID EspReadyGuid = {
-    0xd7f18d20,0x49b1,0x4e41,{0x8d,0x1a,0x91,0x46,0x6c,0x7e,0x37,0xa2}
-  };
   VOID        *ReadyMarker = NULL;
   EFI_STATUS  MarkerStatus;
   EFI_STATUS  ChoiceStatus;
@@ -762,7 +771,7 @@ DeviceBootManagerBeforeConsole (
   UINT16      OnlyBootOption = 0xff10;
   EFI_STATUS  RestoreStatus;
 
-  MarkerStatus = gBS->LocateProtocol(&EspReadyGuid, NULL, &ReadyMarker);
+  MarkerStatus = gBS->LocateProtocol(&mWpEspReadyGuid, NULL, &ReadyMarker);
   Size = sizeof(BootChoice);
   ChoiceStatus = gRT->GetVariable(L"BootOrder", &gEfiGlobalVariableGuid,
                                   NULL, &Size, &BootChoice);
@@ -898,6 +907,18 @@ DeviceBootManagerProcessBootCompletion (
                     );
   }
 
+
+  /* EfiBootManagerBoot stores the final LoadImage/StartImage result here.
+     Keep it for a readable post-failure screen instead of showing the
+     unhelpful generic "No Operating System Found" image. */
+  if (BootOption != NULL && BootOption->OptionNumber == 0xff10) {
+    mWpBootFF10Attempted = TRUE;
+    mWpBootFF10Result = BootOption->Status;
+    DEBUG ((DEBUG_ERROR,
+      "[WP81 BDS] BootFF10 returned %r (0x%lx); EFI path: \\Windows\\BOOT\\EFI\\BOOTMGFW.EFI\n",
+      mWpBootFF10Result, (UINT64)mWpBootFF10Result));
+  }
+
   RestartStatus = BootOption->Status;
   if (OEM_PREVIOUS_SECURITY_VIOLATION == BootOption->Status) {
     RestartStatus = EFI_SECURITY_VIOLATION;
@@ -987,6 +1008,53 @@ DeviceBootManagerUnableToBoot (
 {
   EFI_STATUS                    Status;
   EFI_GRAPHICS_OUTPUT_PROTOCOL *GraphicsOutput;
+  VOID                         *WpMarker = NULL;
+
+  Status = gBS->LocateProtocol(&mWpEspReadyGuid, NULL, &WpMarker);
+  if (!EFI_ERROR(Status) && WpMarker != NULL) {
+    /* Explicit ESP-only mode: give the user the actual BDS status. Avoid
+       replacing it with the generic OS-not-found graphic. In DEBUG use
+       J250F's existing framebuffer serial console (ConOut can be missing). */
+    CHAR8 Buffer[512];
+    UINTN Length;
+    UINT16 Order = 0xffff;
+    UINTN OrderSize = sizeof(Order);
+    EFI_STATUS OrderStatus;
+
+    OrderStatus = gRT->GetVariable(L"BootOrder", &gEfiGlobalVariableGuid,
+                                   NULL, &OrderSize, &Order);
+#if defined(J250F_ADB_RAM_EXECUTION)
+    FbConStartScreen();
+    (VOID)SerialPortInitialize();
+#endif
+    Length = AsciiSPrint(Buffer, sizeof(Buffer),
+      "\r\nWP81 ESP-ONLY BDS DIAGNOSTICS\r\n"
+      "Project Mu returned to firmware.\r\n"
+      "File: Windows/BOOT/EFI/BOOTMGFW.EFI\r\n"
+      "BootFF10 attempted: %a\r\n"
+      "BootFF10 result: %r (0x%lx)\r\n"
+      "BootOrder read: %r, first: %04x\r\n"
+      "Physical eMMC is hidden only in UEFI.\r\n"
+      "Windows kernel MMIO is NOT isolated.\r\n"
+      "No physical storage was modified.\r\n"
+      "Shutting down in 120 seconds.\r\n",
+      mWpBootFF10Attempted ? "YES" : "NO",
+      mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED,
+      (UINT64)(mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED),
+      OrderStatus, Order);
+    (VOID)SerialPortWrite((UINT8 *)Buffer, Length);
+    DEBUG ((DEBUG_ERROR, "%a", Buffer));
+    /* ConOut may not exist on this handset; the framebuffer debug console
+       above is the primary readable path for the DEBUG firmware. */
+    if (gST != NULL && gST->ConOut != NULL) {
+      Print(L"\r\nWP81 EFI-only BDS result: %r\r\n",
+            mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED);
+    }
+    gBS->Stall(120000000);
+    gRT->ResetSystem(EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+    CpuDeadLoop();
+    return;
+  }
 
   // Locate Gop Protocol
   Status = gBS->HandleProtocol (gST->ConsoleOutHandle, &gEfiGraphicsOutputProtocolGuid, (VOID **)&GraphicsOutput);
