@@ -13,6 +13,7 @@
   J250fLkBackend.c
   J250fUsbGadget.c
   J250fAdbShell.c
+  J250fGopDiag.c
   J250fEmmcDebug.c
   Core/j250f_adb.c
   Core/j250f_emmc.c
