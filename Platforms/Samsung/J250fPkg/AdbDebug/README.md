@@ -55,6 +55,36 @@ over. The DXE's GOP/CPU/power dependencies must first be satisfied. This debug
 mode holds the DXE entry point until explicit exit; other drivers may not yet
 have dispatched, which can limit protocols available to uploaded applications.
 
+## Built-in GOP diagnostics (no external EFI app required)
+
+These commands use EDK II's real Graphics Output Protocol GUID, UEFI service
+definitions, and the firmware's own `gBS` table, avoiding hand-written UEFI
+ABI structs in an ARM32 test binary.
+
+```sh
+adb -s J250F-UEFI shell gop status
+adb -s J250F-UEFI shell gop test
+```
+
+`gop status` reports `LocateProtocol`, `LocateHandleBuffer`, handle count,
+screen resolution, stride, pixel format, framebuffer address and size, and
+whether a physical 32-bit BGRX GOP layout is advertised. GOP format 3 is
+`PixelBltOnly` (24-bit fallback); format 1 is `PixelBlueGreenRedReserved8BitPerColor`
+(native BGRX). Neither alone proves actual panel scanout.
+
+`gop test` saves a **192x16** rectangle on the bottom edge of the screen,
+draws red/green/blue bars, performs a GOP readback, displays the bars for
+750ms, then **restores the original pixels**. It does not write to storage
+or raw display-controller MMIO. `RGB readback=PASS` verifies software readback,
+but physically visible bars must be checked separately.
+
+If the standalone `J250fGopTest.efi` reports `StartImage returned: Not Found`
+while `gop status` finds the GOP, the standalone app's hand-written UEFI
+ABI/GUID, build options, or its PE/COFF entry point are suspect. These built-in
+commands avoid that ambiguity. If `gop status` also reports Not Found, inspect
+the flashed firmware build, DXE GOP installation and debug logs; don't blindly
+write to `0xA8300000`.
+
 ## Upload and run compiled firmware code
 
     adb push mytool.efi /ram/mytool.efi
