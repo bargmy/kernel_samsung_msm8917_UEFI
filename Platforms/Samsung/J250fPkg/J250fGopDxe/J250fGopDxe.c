@@ -324,11 +324,21 @@ J250fGopEntry(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
   UINT64 Address = FixedPcdGet64(PcdMipiFrameBufferAddress);
   UINT32 Bpp = FixedPcdGet32(PcdMipiFrameBufferPixelBpp);
   EFI_PHYSICAL_ADDRESS NativeFb = 0;
+  EFI_GRAPHICS_OUTPUT_PROTOCOL *ExistingGop = NULL;
   UINTN Bytes;
   EFI_STATUS Status;
 
   (VOID)ImageHandle;
   (VOID)SystemTable;
+
+  /* The standalone GOP DXE and the eMMC recovery path both use this core.
+     Never install a duplicate GOP on a phone where the first DXE succeeded. */
+  Status = gBS->LocateProtocol(
+    &gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&ExistingGop);
+  if (!EFI_ERROR(Status) && ExistingGop != NULL) {
+    DEBUG((DEBUG_WARN, "J250F GOP: already present, skipping duplicate\n"));
+    return EFI_SUCCESS;
+  }
 
   mWidth = FixedPcdGet32(PcdMipiFrameBufferWidth);
   mHeight = FixedPcdGet32(PcdMipiFrameBufferHeight);
@@ -403,7 +413,8 @@ J250fGopEntry(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
     &gEfiDevicePathProtocolGuid, &mDevicePath,
     &gEfiGraphicsOutputProtocolGuid, &mGop,
     NULL);
-  DEBUG((DEBUG_INFO,
+  /* Print even with the board's WARN-only debug log configuration. */
+  DEBUG((DEBUG_WARN,
     "J250F GOP: %ux%u stride=%u BPP=%u fb=0x%Lx fmt=%u status=%r\n",
     (UINT32)mWidth, (UINT32)mHeight, (UINT32)mStride, Bpp,
     Address, (UINT32)mInfo.PixelFormat, Status));
