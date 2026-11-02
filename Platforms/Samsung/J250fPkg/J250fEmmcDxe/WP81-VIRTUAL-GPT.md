@@ -60,3 +60,26 @@ Samsung eMMC on a failed preparation path.
 - The secure-image authentication policy is **not bypassed**.
 - The software must be validated in both ARM32 DEBUG and RELEASE builds
   and tested on hardware with a backup/recovery path before relying on it.
+
+## November ESP-only BDS error diagnostics
+
+The J250F reported `BootFF10 attempted: YES` followed by
+`EFI_ACCESS_DENIED` (0x8000000F). This proves that Project Mu attempted
+the boot option, but **not** whether Windows Boot Manager executed.
+
+To avoid guessing, `MsBootPolicyLib.LocalLoadImage` now records only
+for the verified WP81 virtual-disk device-path GUID:
+- whether the BDS LoadImage policy wrapper was reached;
+- whether the platform path policy explicitly rejected the load;
+- the status returned by the underlying UEFI `LoadImage` call.
+
+The J250F framebuffer diagnostic screen now distinguishes denial by the
+platform path policy, denial by the underlying image loader, and a successful
+`LoadImage` followed by a failed `StartImage`/application return. No policy
+is disabled and the ESP and backing eMMC are still read-only.
+The `BootOrder` read now uses a bounded 64-entry buffer instead of a
+single `UINT16`; the previous `Buffer Too Small` line was a diagnostic
+buffer-sizing bug and did not itself explain the boot failure.
+
+Use a DEBUG build of this exact PR commit to read the framebuffer messages.
+The underlying cause of `EFI_ACCESS_DENIED` is still to be confirmed on hardware.
