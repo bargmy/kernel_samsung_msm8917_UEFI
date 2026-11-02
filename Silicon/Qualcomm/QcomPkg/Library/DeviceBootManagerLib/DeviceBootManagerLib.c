@@ -742,7 +742,35 @@ DeviceBootManagerBeforeConsole (
   BDS_CONSOLE_CONNECT_ENTRY  **PlatformConsoles
   )
 {
-  MsBootOptionsLibRegisterDefaultBootOptions ();
+  /*
+   * J250F ESP-only firmware experiment: an already staged virtual disk has
+   * registered BootFF10 and a one-entry BootOrder. Do not append Qualcomm's
+   * generic "Internal Storage" and USB boot entries in this case: their
+   * platform policy probes a different Microsoft EFI path and may fall back
+   * to the wrong boot device. Never suppress the defaults without both
+   * the exact BootOrder marker and a real BootFF10 variable.
+   */
+  UINT16      BootChoice = 0;
+  UINT8       BootHeader[8];
+  UINTN       Size = sizeof(BootChoice);
+  EFI_STATUS  BootStatus;
+  BOOLEAN     EspOnly = FALSE;
+
+  BootStatus = gRT->GetVariable(L"BootOrder", &gEfiGlobalVariableGuid,
+                                NULL, &Size, &BootChoice);
+  if (!EFI_ERROR(BootStatus) && Size == sizeof(BootChoice) &&
+      BootChoice == 0xff10) {
+    Size = sizeof(BootHeader);
+    BootStatus = gRT->GetVariable(L"BootFF10", &gEfiGlobalVariableGuid,
+                                  NULL, &Size, BootHeader);
+    EspOnly = (BootStatus == EFI_BUFFER_TOO_SMALL && Size > sizeof(BootHeader));
+  }
+  if (!EspOnly) {
+    MsBootOptionsLibRegisterDefaultBootOptions ();
+  } else {
+    DEBUG ((DEBUG_INFO,
+      "[Bds] J250F WP81 ESP-only BootFF10 present: skip generic Internal Storage/USB boot entries.\\n"));
+  }
   *PlatformConsoles = GetPlatformConsoleList ();
 
   return GetPlatformPreferredConsole (DevicePath);
