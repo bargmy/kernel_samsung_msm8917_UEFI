@@ -38,6 +38,27 @@ static BOOT_SEQUENCE  BootSequenceHUP[] = {
 static MS_BUTTON_SERVICES_PROTOCOL  *gButtonService = NULL;
 static EFI_IMAGE_LOAD               gSystemLoadImage;
 
+/* J250F WP81 ESP-only image-load trace. These are RAM-only diagnostics read
+   by DeviceBootManagerLib when BootFF10 returns; no UEFI policy is changed. */
+BOOLEAN    gWp81LoadObserved = FALSE;
+BOOLEAN    gWp81LoadPolicyRejected = FALSE;
+EFI_STATUS gWp81LoadStatus = EFI_NOT_READY;
+
+STATIC EFI_GUID mWp81DiskNodeGuid = {
+  0xe7b5ba2a, 0xd586, 0x4df0,
+  {0x8e,0x28,0x2a,0xd5,0x5d,0x85,0x9c,0x81}
+};
+
+STATIC BOOLEAN IsWp81VirtualPath (EFI_DEVICE_PATH_PROTOCOL *Path) {
+  VENDOR_DEVICE_PATH *Vendor;
+  if (Path == NULL || Path->Type != HARDWARE_DEVICE_PATH ||
+      Path->SubType != HW_VENDOR_DP ||
+      Path->Length[0] != sizeof(VENDOR_DEVICE_PATH) ||
+      Path->Length[1] != 0) return FALSE;
+  Vendor = (VENDOR_DEVICE_PATH *)Path;
+  return CompareGuid(&Vendor->Guid, &mWp81DiskNodeGuid);
+}
+
 /**
  * GetButtonServiceProtocol
  *
@@ -71,21 +92,41 @@ LocalLoadImage (
   OUT EFI_HANDLE                *ImageHandle
   )
 {
-  if (NULL != DevicePath) {
-    if (!MsBootPolicyLibIsDevicePathBootable (DevicePath)) {
-      return EFI_ACCESS_DENIED;
+  EFI_STATUS Status;
+  BOOLEAN Wp81Trace = IsWp81VirtualPath(DevicePath);
+
+  if (Wp81Trace) {
+    gWp81LoadObserved = TRUE;
+    gWp81LoadPolicyRejected = FALSE;
+    gWp81LoadStatus = EFI_NOT_READY;
+  }
+  if (DevicePath != NULL &&
+      !MsBootPolicyLibIsDevicePathBootable(DevicePath)) {
+    if (Wp81Trace) {
+      gWp81LoadPolicyRejected = TRUE;
+      gWp81LoadStatus = EFI_ACCESS_DENIED;
+      DEBUG ((DEBUG_ERROR,
+        "[WP81 LoadImage] platform device-path policy denied: %r\n",
+        gWp81LoadStatus));
     }
+    return EFI_ACCESS_DENIED;
   }
 
-  // Pass LoadImage call to system LoadImage;
-  return gSystemLoadImage (
-           BootPolicy,
-           ParentImageHandle,
-           DevicePath,
-           SourceBuffer,
-           SourceSize,
-           ImageHandle
-           );
+  Status = gSystemLoadImage (
+             BootPolicy,
+             ParentImageHandle,
+             DevicePath,
+             SourceBuffer,
+             SourceSize,
+             ImageHandle
+             );
+  if (Wp81Trace) {
+    gWp81LoadStatus = Status;
+    DEBUG ((DEBUG_ERROR,
+      "[WP81 LoadImage] underlying UEFI image loader returned: %r\n",
+      Status));
+  }
+  return Status;
 }
 
 /**
