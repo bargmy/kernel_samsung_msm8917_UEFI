@@ -45,7 +45,8 @@ STATIC J250F_GOP_DEVICE_PATH mDevicePath = {
       { (UINT8)sizeof(VENDOR_DEVICE_PATH),
         (UINT8)(sizeof(VENDOR_DEVICE_PATH) >> 8) }
     },
-    EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID
+    { 0x75c8e1a4, 0x5e0b, 0x49b5,
+      { 0xb2, 0x23, 0x6f, 0x2e, 0xda, 0xc3, 0x19, 0x54 } }
   },
   {
     END_DEVICE_PATH_TYPE,
@@ -410,17 +411,32 @@ J250fGopPublish(IN EFI_HANDLE ImageHandle,
   mMode.Info = &mInfo;
   mMode.SizeOfInfo = sizeof(mInfo);
 
-  Status = gBS->InstallMultipleProtocolInterfaces(
-    &mHandle,
-    &gEfiDevicePathProtocolGuid, &mDevicePath,
-    &gEfiGraphicsOutputProtocolGuid, &mGop,
-    NULL);
-  /* Print even with the board's WARN-only debug log configuration. */
-  DEBUG((DEBUG_WARN,
-    "J250F GOP: %ux%u stride=%u BPP=%u fb=0x%Lx fmt=%u status=%r\n",
-    (UINT32)mWidth, (UINT32)mHeight, (UINT32)mStride, Bpp,
-    Address, (UINT32)mInfo.PixelFormat, Status));
-  return Status;
+  /*
+    CoreInstallMultipleProtocolInterfaces() refuses to install a DevicePath
+    that already exists (EFI_ALREADY_STARTED) and never reaches the later
+    GOP entry. That is the exact failure observed on the J250F.
+    Install GOP FIRST and separately. A DevicePath collision can no longer
+    block or roll back the GraphicsOutput protocol.
+  */
+  Status = gBS->InstallProtocolInterface(
+    &mHandle, &gEfiGraphicsOutputProtocolGuid, EFI_NATIVE_INTERFACE, &mGop);
+  if (EFI_ERROR(Status)) {
+    DEBUG((DEBUG_ERROR, "J250F GOP: InstallProtocolInterface(GOP)=%r\n", Status));
+    return Status;
+  }
+
+  /* Use a J250F-specific Vendor DevicePath GUID, not the generic GOP GUID.
+     This is separate so a failed path installation leaves GOP functional. */
+  {
+    EFI_STATUS PathStatus = gBS->InstallProtocolInterface(
+      &mHandle, &gEfiDevicePathProtocolGuid, EFI_NATIVE_INTERFACE,
+      &mDevicePath);
+    DEBUG((DEBUG_WARN,
+      "J250F GOP: GOP=Success Path=%r handle=%p %ux%u BPP=%u fmt=%u fb=0x%Lx\n",
+      PathStatus, mHandle, (UINT32)mWidth, (UINT32)mHeight, Bpp,
+      (UINT32)mInfo.PixelFormat, Address));
+  }
+  return EFI_SUCCESS;
 }
 
 EFI_STATUS EFIAPI
