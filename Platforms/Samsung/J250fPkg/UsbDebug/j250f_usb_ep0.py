@@ -15,7 +15,7 @@ def decode(data):
     return obj
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument('action',choices=['ping','snapshot','probe','monitor'])
+    p.add_argument('action',choices=['scan','ping','snapshot','probe','monitor'])
     p.add_argument('--rate',choices=[400000],type=int,default=400000)
     p.add_argument('--yes',action='store_true',help='Allow controller/card reinitialization')
     p.add_argument('--vid',type=lambda x:int(x,0),default=VID)
@@ -25,8 +25,28 @@ def main():
     p.add_argument('--log')
     a=p.parse_args()
     import usb.core
-    dev=usb.core.find(idVendor=a.vid,idProduct=a.pid)
-    if dev is None: p.error("J250F gadget not detected")
+    backend=None
+    try:
+        import libusb_package
+        backend=libusb_package.get_libusb1_backend()
+    except ImportError:
+        pass
+    try:
+        if a.action=='scan':
+            devices=list(usb.core.find(find_all=True,backend=backend))
+            for item in devices:
+                print(f'{item.idVendor:04x}:{item.idProduct:04x}')
+            if not devices:
+                print('No USB devices visible to libusb. Check WinUSB binding and firmware USB window.')
+            return
+        dev=usb.core.find(idVendor=a.vid,idProduct=a.pid,backend=backend)
+    except usb.core.NoBackendError:
+        p.error("No libusb backend. Run: python -m pip install libusb-package")
+    except usb.core.USBError as exc:
+        p.error(f"USB access failed: {exc}. Check Windows WinUSB driver.")
+    if dev is None:
+        p.error(f"USB {a.vid:04x}:{a.pid:04x} not detected; verify Windows hardware IDs, "
+                "WinUSB binding, and that firmware's USB polling window has not expired")
     if a.action=='probe' and not a.yes: p.error("probe resets card state; pass --yes")
     if a.count<0 or a.interval<0: p.error("count and interval must be nonnegative")
     dev.set_configuration(1)
