@@ -24,6 +24,7 @@ extern VOID EFIAPI J250fGopDiagRecord(
 #include "J250fUsbGadget.h"
 #include "J250fAdbShell.h"
 extern EFI_STATUS EFIAPI J250fUsbDiagCommand(UINT16,UINT16,UINT16,VOID*,UINTN*);
+extern VOID EFIAPI J250fWpInit(EFI_HANDLE Parent);
 
 typedef struct {
   VENDOR_DEVICE_PATH Vendor;
@@ -177,6 +178,7 @@ EFI_STATUS EFIAPI J250fLkEmmcEntry(
   UINTN Len, Second;
   (VOID)SystemTable;
   J250fAdbShellInit(ImageHandle);
+  J250fWpInit(ImageHandle);
   // DEPEX guarantees CPU/GOP/power readiness. No callback can outlive this
   // image if initialization returns an error and DXE unloads it.
   SerialPortInitialize();
