@@ -57,6 +57,12 @@ typedef struct {
 } WP_DISK;
 STATIC WP_DISK mWp;
 STATIC EFI_HANDLE mImageHandle;
+/* Contract with QcomPkg DeviceBootManagerLib: published only after BDS
+   BootFF10 is installed and ESP-only virtual topology has been verified.
+   This is intentionally an in-memory marker, never an eMMC write. */
+STATIC EFI_GUID mWpEspReadyGuid = {
+  0xd7f18d20,0x49b1,0x4e41,{0x8d,0x1a,0x91,0x46,0x6c,0x7e,0x37,0xa2}
+};
 STATIC EFI_GUID mWpPathGuid = {
   0xe7b5ba2a,0xd586,0x4df0,{0x8e,0x28,0x2a,0xd5,0x5d,0x85,0x9c,0x81}
 };
@@ -412,7 +418,11 @@ STATIC EFI_STATUS RegisterBdsBootOption (VOID) {
 EFI_STATUS EFIAPI J250fWpPrepareBds (VOID) {
   EFI_STATUS Status=WpMount();
   if (EFI_ERROR(Status)) return Status;
-  return RegisterBdsBootOption();
+  Status=RegisterBdsBootOption();
+  if (EFI_ERROR(Status)) return Status;
+  /* The marker must never be published if a mount or boot option fails. */
+  return gBS->InstallProtocolInterface(&mWp.Handle,
+            &mWpEspReadyGuid, EFI_NATIVE_INTERFACE, (VOID *)&mWp);
 }
 
 STATIC EFI_STATUS TryBootManager (BOOLEAN Execute,CHAR8 *Out,UINTN Cap) {
