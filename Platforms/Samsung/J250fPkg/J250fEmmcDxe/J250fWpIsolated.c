@@ -358,7 +358,7 @@ STATIC EFI_HANDLE LocateVirtualEsp (VOID) {
    Do not call LoadImage/StartImage in DXE: BDS must run after EndOfDxe.
    The platform's emulated NV variable mode keeps Boot#### RAM-backed. */
 STATIC EFI_STATUS RegisterBdsBootOption (VOID) {
-  STATIC CONST CHAR16 *Loader=L"\\EFI\\BOOT\\BOOTARM.EFI";
+  STATIC CONST CHAR16 *Loader=L"\\Windows\\BOOT\\EFI\\BOOTMGFW.EFI";
   STATIC CONST CHAR16 *Description=L"Windows Phone 8.1 EFI-only test";
   EFI_HANDLE Esp;
   EFI_DEVICE_PATH_PROTOCOL *Path;
@@ -417,8 +417,8 @@ EFI_STATUS EFIAPI J250fWpPrepareBds (VOID) {
 
 STATIC EFI_STATUS TryBootManager (BOOLEAN Execute,CHAR8 *Out,UINTN Cap) {
   STATIC CONST CHAR16 *Paths[]={
-    L"\\EFI\\BOOT\\BOOTARM.EFI",
-    L"\\Windows\\BOOT\\EFI\\BOOTMGFW.EFI"
+    L"\\Windows\\BOOT\\EFI\\BOOTMGFW.EFI",
+    L"\\EFI\\BOOT\\BOOTARM.EFI"
   };
   EFI_HANDLE Esp,Image=NULL;
   EFI_STATUS Status=EFI_NOT_FOUND;
