@@ -249,7 +249,7 @@ EFI_STATUS EFIAPI J250fLkEmmcEntry(
   if (!EFI_ERROR(Status) && mPublished) {
     EFI_STATUS BootStatus=J250fWpPrepareBds();
     Len=AsciiSPrint(Text,sizeof(Text),
-      "WP81 EFI-only BDS preparation: %r\\r\\n",BootStatus);
+      "WP81 EFI-only BDS preparation: %r\r\n",BootStatus);
     SerialPortWrite((UINT8*)Text,Len);
     if (!EFI_ERROR(BootStatus)) {
       J250fUsbGadgetStop();
