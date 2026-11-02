@@ -37,6 +37,7 @@
   DEBUG_*_*_CC_FLAGS = -DJ250F_ADB_RAM_EXECUTION=1
 
 [LibraryClasses.common]
+  J250fGopSupportLib|J250fPkg/J250fGopDxe/J250fGopSupportLib.inf
   J250fSdccPlatformLib|GPLDrivers/Library/J250fSdccPlatformLib/J250fSdccPlatformLib.inf
   PlatformMemoryMapLib|J250FPkg/Library/PlatformMemoryMapLib/PlatformMemoryMapLib.inf
   KeypadDeviceImplLib|J250FPkg/Library/KeypadDeviceImplLib/KeypadDeviceImplLib.inf
