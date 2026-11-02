@@ -113,5 +113,17 @@ Exit:
   if (Observed != NULL)
     FreePool(Observed);
   Print(L"J250F GOP BLT roundtrip: %r\n", Status);
+  /* For a Windows boot attempt, a healthy BLT driver is not enough:
+     Windows needs a persistent physical BGRX8888 framebuffer. */
+  if (!EFI_ERROR(Status) &&
+      (Gop->Mode->Info->PixelFormat !=
+          PixelBlueGreenRedReserved8BitPerColor ||
+       Gop->Mode->FrameBufferBase == 0 ||
+       Gop->Mode->FrameBufferSize < 540u * 960u * 4u)) {
+    Print(L"J250F Windows GOP check: unsupported (not native 32-bit BGRX)\n");
+    return EFI_UNSUPPORTED;
+  }
+  if (!EFI_ERROR(Status))
+    Print(L"J250F Windows GOP layout check: PASS (MDP scanout still needs phone verification)\n");
   return Status;
 }
