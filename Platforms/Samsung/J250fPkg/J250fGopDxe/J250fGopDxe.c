@@ -367,8 +367,8 @@ J250fGopEntry(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
       mFramebufferBytes = mStride * mHeight * Bytes;
       mNativeBgrx = TRUE;
     } else {
-      DEBUG((DEBUG_INFO,
-        "J250F GOP: retaining working RGB888 BLT scanout (%r)\n",
+      DEBUG((DEBUG_WARN,
+        "J250F GOP: MDP32 unavailable, retaining RGB888 BLT scanout (%r)\n",
         NativeStatus));
     }
   }
