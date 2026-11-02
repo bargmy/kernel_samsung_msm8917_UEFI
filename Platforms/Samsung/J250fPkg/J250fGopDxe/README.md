@@ -1,63 +1,71 @@
-# Samsung J250F inherited-framebuffer GOP (experimental)
+# Samsung J250F GOP: working 24-bit path + experimental native 32-bit MDP
 
-**Scope:** This branch changes the J250F UEFI GOP driver and includes a separate
-non-destructive EFI graphics self-test. It does **not** touch eMMC, GPT,
-partition layout, RPM, Samsung display controller registers, or Windows files.
+**Branch:** `experimental/j250f-gop-safe` (draft PR #14).
 
-## Physical configuration and limits
+The older 24-bit GOP works on the physical J250F. This branch keeps that
+working path; it does **not** try to set the old RGB888 pointer to 32-bit or
+rewrite Samsung's DSI panel initialization.
 
-The J250F DSC currently specifies a Samsung bootloader-inherited **540x960,
-RGB888 packed 24-bit** buffer, 540 pixels/line, starting at physical
-`0xA800035A`. The board memory map reserves `0xA8000000..0xA82FFFFF`.
-The actual base/format/active panel scanout must be confirmed on the phone.
+## Native 32-bit BGRX attempt
 
-This driver deliberately exposes an accurate **`PixelBltOnly`** GOP for the
-24-bit scanout and implements BLT video fill, buffer-to-video,
-video-to-buffer, and overlapping video-to-video copy, with bounds checking.
-The 24-bit path has no advertised linear 32-bit framebuffer. This is correct
-for the reported 24-bit format but **does not satisfy Windows' BGRX linear
-framebuffer requirement**. It is primarily an EFI graphics and boot-manager
-bring-up milestone, *not* proof of a Windows-ready GOP.
+J250F's original Samsung DTS describes a **24-bit DSI video panel** but its
+Qualcomm MDSS MDP can fetch a **32-bit BGRX8888 source framebuffer**. The panel
+link and memory framebuffer pixel formats are different things.
 
-For native 32-bit scanout, **first** measure/reconfigure the MSM8917 MDP to
-scan out a genuine word-aligned 32-bit physical buffer, and update the J250F
-PCDs (BPP, base, stride) to match. Only if the actual byte order is B,G,R,X
-should the build set `J250F_GOP_NATIVE_BGRX=1` for this module. Do not change
-only the PCD to 32 or claim the 24-bit buffer is 32-bit: that can corrupt
-neighboring pixels or display memory. Changing these PCDs alone cannot change
-MDP hardware scanout. This driver never guesses or reprograms MDP registers.
+On GOP initialization, the new `J250fMdp32.c`:
 
-## Build integration
+1. **Reads first; no blind writes.** Matches exactly one active full-screen,
+   video-mode MDP pipe displaying the known 540x960 RGB888 source at
+   `0xA800035A`, with expected source stride, unpack and BPP.
+2. Verifies exactly one applicable MDP CTL and refuses ambiguous or unsupported
+   modes (including UBWC, tiled input and command-mode panels).
+3. Reserves a distinct 540x960x4 buffer at `0xA8300000` via
+   `AllocatePages(AllocateAddress, EfiReservedMemoryType,...)`. This is already
+   listed as DRAM in the J250F memory map; the reservation must succeed.
+4. Copies the working 24-bit splash into **B, G, R, X** physical pixel order.
+5. Updates **only that identified MDP source** to a real BGRX8888 fetch, with
+   corresponding stride and address, readback verification and CTL flush.
+6. Publishes GOP `PixelBlueGreenRedReserved8BitPerColor` with
+   `FrameBufferBase=0xA8300000` and a full nonzero `FrameBufferSize`.
 
-- `J250FPkg/Include/APRIORI.inc` and `DXE.inc` use this DXE instead of the
-  shared `QcomPkg/Drivers/SimpleFbDxe`.
-- `J250FPkg/J250F.dsc` builds the new DXE. The shared Qualcomm source is
-  unchanged for other boards.
-- `J250fGopTest.inf` is **compiled, not embedded into the firmware**. Its
-  standalone ARM32 EFI executable can be uploaded with the existing ADB
-  diagnostics flow after the image has been built.
+If probe or allocation fails, the firmware **remains in the old working
+packed-RGB888 mode** (GOP `PixelBltOnly`) without touching MDP registers.
+If register readback fails, the driver restores the original source registers
+and keeps the 24-bit GOP.
 
-The existing framebuffer-based SerialPortLib still writes diagnostic text to
-the physical buffer. Windows handoff requires stopping such writes before the
-boot application takes ownership.
+This 32-bit path is **not yet hardware validated**; the controller may use
+another pipe/address/format than the known framebuffer pointer, or need an
+additional platform-specific MDP command. The original 24-bit fallback protects
+early firmware usability, but an unsuccessful MDP switch can temporarily blank
+the screen. Keep a working firmware and a recovery/ADB path.
 
-## Phone verification
+## Verify before claiming Windows graphics works
 
-With the experimental firmware, capture the serial/framebuffer log line
-`J250F GOP: 540x960 stride=540 BPP=24 ... fmt=3 status=Success`.
-Then test the separately built `J250fGopTest.efi` from the ADB shell:
+The self-test is a standalone ARM32 EFI application built but not embedded
+into the phone image:
 
 ```sh
 adb push J250fGopTest.efi /ram/J250fGopTest.efi
 adb shell efi run /ram/J250fGopTest.efi
 ```
 
-The application reads the bottom 16 rows, fills three color bars, reads them
-back through GOP, checks the colors and **restores the original pixels**.
-A successful roundtrip verifies the GOP software path; it does **not** verify
-actual MDP refresh, native 32-bit scanout, Windows graphics, or the physical
-pixel channel order. An LCD observation is still needed.
+It draws RGB test bars, reads them back, and restores the original scanlines.
+It returns **`EFI_UNSUPPORTED`** if the final GOP is still `PixelBltOnly`
+or lacks a physical BGRX8888 framebuffer. The `EFI_SUCCESS` result means
+software BLT + GOP memory layout checks passed; **you must also visually
+verify that bars appeared and the panel remained alive**. A readback alone
+cannot prove that the MDP is genuinely scanning out from the new buffer.
 
-**Status:** Source committed, not built with the full ARM32 Mu toolchain here,
-and not tested on the J250F hardware. Keep recovery access and retain the
-previous known-working firmware image until verified.
+The original `FrameBufferSerialPortLib` continues logging to the **old**
+24-bit buffer, rather than corrupting the new 32-bit scanout. Windows'
+firmware-to-OS handoff still requires disabling framebuffer logging before
+launching Windows boot files. All other boot blockers (ACPI, OS loader and
+storage continuity) remain outside this patch.
+
+## Changes and risk
+
+- J250F GOP driver + Qualcomm MDP BGRX handoff and self-test.
+- J250F DSC / APRIORI / DXE select this module.
+- Generic `QcomPkg/SimpleFbDxe`, all eMMC code, RPM, storage and GPT untouched.
+- No full ARM32 Mu build or J250F phone test has been performed in this
+  session. **Do not merge as confirmed working before testing on the phone.**
