@@ -14,6 +14,7 @@
   J250fUsbGadget.c
   J250fAdbShell.c
   J250fExt4Commands.c
+  J250fWpVirtualDisk.c
   J250fGopDiag.c
   J250fDeepDebug.c
   J250fEmmcDebug.c
@@ -37,6 +38,7 @@
   TimerLib
   SerialPortLib
   PrintLib
+  DevicePathLib
 [Protocols]
   gEfiLoadedImageProtocolGuid
   gEfiCpuArchProtocolGuid
@@ -44,6 +46,9 @@
   gJ250fEmmcPowerProtocolGuid  ## CONSUMES
   gEfiBlockIoProtocolGuid      ## PRODUCES
   gEfiSimpleFileSystemProtocolGuid  ## CONSUMES (ext4 ADB browser)
+  gEfiPartitionInfoProtocolGuid ## CONSUMES (identify userdata and EFI ESP)
   gEfiDevicePathProtocolGuid   ## PRODUCES
+[Guids]
+  gEfiFileInfoGuid
 [Depex]
   gEfiCpuArchProtocolGuid AND gJ250fEmmcPowerProtocolGuid
