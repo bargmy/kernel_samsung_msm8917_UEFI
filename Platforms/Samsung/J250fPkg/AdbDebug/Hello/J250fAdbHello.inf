@@ -1,0 +1,13 @@
+[Defines]
+  INF_VERSION = 0x00010017
+  BASE_NAME = J250fAdbHello
+  FILE_GUID = 64791af1-cd31-4f8a-8f0b-a43071c79b3f
+  MODULE_TYPE = UEFI_APPLICATION
+  VERSION_STRING = 1.0
+  ENTRY_POINT = UefiMain
+[Sources]
+  J250fAdbHello.c
+[Packages]
+  MdePkg/MdePkg.dec
+[LibraryClasses]
+  UefiApplicationEntryPoint

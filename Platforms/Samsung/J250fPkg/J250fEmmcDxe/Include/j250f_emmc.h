@@ -72,6 +72,14 @@ typedef enum j250f_result {
     J250F_E_POWER = -9
 } j250f_result;
 
+#define J250F_TRACE_DEPTH 16u
+typedef struct j250f_trace {
+    uint32_t sequence, command, argument, flags, result, interrupt, present;
+    uint32_t response[4], vendor, dll, hc2, clock, frequency_hz;
+    uint32_t core_mode, power_status, power_mask, power_control;
+    uint32_t gcc_cfg, gcc_m, gcc_n, gcc_d, tlmm;
+} j250f_trace;
+
 typedef struct j250f_emmc {
     j250f_ops io;
     void *context;
@@ -88,6 +96,12 @@ typedef struct j250f_emmc {
     uint16_t last_clock;
     uint8_t last_command;
     uint32_t last_r1;
+    uint32_t trace_sequence;
+    j250f_trace trace[J250F_TRACE_DEPTH];
+    int (*diagnostic_apply)(void *);
+    void (*diagnostic_capture)(void *,j250f_trace *);
+    void *diagnostic_context;
+    uint8_t cid_valid;
     uint8_t ext_csd[512];
     uint8_t high_capacity;
     uint8_t host_ready;
@@ -103,6 +117,7 @@ typedef struct j250f_emmc {
 /* Single-threaded operations; external caller serializes access. */
 int j250f_init_host(j250f_emmc *h, const j250f_ops *ops, void *context);
 int j250f_init_card(j250f_emmc *h);
+int j250f_identify_card(j250f_emmc *h);
 int j250f_read_blocks(j250f_emmc *h, uint32_t sector, uint32_t count, void *buf);
 /* Explicitly opt in to writing: zero by default to prevent accidents. */
 void j250f_allow_writes(j250f_emmc *h, int allow);

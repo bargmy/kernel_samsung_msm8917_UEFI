@@ -141,12 +141,33 @@ static int ensure_legacy_mclk(j250f_emmc *h)
     return J250F_OK;
 }
 
+/* J250F hardware experiment: a clock-gated, explicit legacy HC2 write
+ * before each identification command succeeded even when HC2 read zero.
+ * Reproduce that ordering without requiring an ADB diagnostic profile.
+ * Preserve signal-voltage and other HC2 bits; restore the original clock
+ * on both success and failed readback. Only call while both lines are idle.
+ */
+static int latch_legacy_timing(j250f_emmc *h)
+{
+    uint16_t clock=h->io.read16(h->context,J250F_REGION_HC,HC_CLOCK);
+    uint16_t ctrl2,actual;
+    w16(h,J250F_REGION_HC,HC_CLOCK,(uint16_t)(clock&~CLOCK_CARD_EN));
+    sync_io(h);
+    ctrl2=h->io.read16(h->context,J250F_REGION_HC,HC_HOST_CONTROL2);
+    w16(h,J250F_REGION_HC,HC_HOST_CONTROL2,(uint16_t)(ctrl2&~7u));
+    sync_io(h);
+    actual=h->io.read16(h->context,J250F_REGION_HC,HC_HOST_CONTROL2);
+    w16(h,J250F_REGION_HC,HC_CLOCK,clock);
+    sync_io(h);
+    return (actual&7u)?J250F_E_IO:J250F_OK;
+}
+
 int j250f_set_frequency(j250f_emmc *h,uint32_t hz)
 {
     uint32_t vendor;
     int r;
     if (!h || !h->io.set_clock_hz || hz>50000000u ||
-        (hz && hz!=400000u && hz!=20000000u && hz!=25000000u))
+        (hz && hz!=144000u && hz!=400000u && hz!=20000000u && hz!=25000000u))
         return J250F_E_ARGUMENT;
     /* Disable the card clock before changing Qualcomm root frequency. */
     w16(h,J250F_REGION_HC,HC_CLOCK,0);
@@ -208,6 +229,30 @@ static int reset(j250f_emmc *h,uint8_t bits)
     return J250F_E_TIMEOUT;
 }
 
+/* Record the failing transaction before W1C and command-line reset destroy
+ * evidence. Raw response words on CRC failure are not a validated CID. */
+static void record_command(j250f_emmc *h,unsigned cmd,uint32_t arg,uint16_t flags,
+                           uint32_t intr,int result)
+{
+    unsigned i; j250f_trace *t;
+    uint32_t seq=++h->trace_sequence;
+    t=&h->trace[(seq-1u)%J250F_TRACE_DEPTH];
+    t->sequence=seq;t->command=cmd;t->argument=arg;t->flags=flags;
+    t->result=(uint32_t)result;t->interrupt=intr;
+    t->present=r32(h,J250F_REGION_HC,HC_PRESENT);
+    for(i=0;i<4;i++)t->response[i]=r32(h,J250F_REGION_HC,HC_RESPONSE+i*4);
+    t->vendor=r32(h,J250F_REGION_HC,HC_VENDOR_SPEC);
+    t->dll=r32(h,J250F_REGION_HC,HC_DLL_CONFIG);
+    t->hc2=h->io.read16(h->context,J250F_REGION_HC,HC_HOST_CONTROL2);
+    t->clock=h->io.read16(h->context,J250F_REGION_HC,HC_CLOCK);
+    t->frequency_hz=h->frequency_hz;
+    t->core_mode=r32(h,J250F_REGION_CORE,CORE_MODE);
+    t->power_status=r32(h,J250F_REGION_CORE,CORE_PWR_STATUS);
+    t->power_mask=r32(h,J250F_REGION_CORE,CORE_PWR_MASK);
+    t->power_control=r32(h,J250F_REGION_CORE,CORE_PWR_CTL);
+    if(h->diagnostic_capture)h->diagnostic_capture(h->diagnostic_context,t);
+}
+
 /* Commands use legacy, non-DMA PIO transfer with bounded polling. */
 static int command(j250f_emmc *h,unsigned cmd,uint32_t arg,unsigned response,
                    uint8_t *buffer,int write_data,size_t data_len,uint32_t *out)
@@ -219,7 +264,7 @@ static int command(j250f_emmc *h,unsigned cmd,uint32_t arg,unsigned response,
     h->last_command=(uint8_t)cmd;
     if (!h->host_ready) return J250F_E_NOT_READY;
     if (data_len && (!buffer || data_len!=512)) return J250F_E_ARGUMENT;
-    if (data_len || response==RSP_48_BUSY) mask|=DATA_INHIBIT;
+    if (data_len || response==RSP_48_BUSY || !h->card_ready) mask|=DATA_INHIBIT;
     rc=poll_mask(h,J250F_REGION_HC,HC_PRESENT,mask,0,1000000);
     if (rc) return rc;
     /* A reset/feedback-clock path may have cleared the Qualcomm MCLK mux.
@@ -227,6 +272,14 @@ static int command(j250f_emmc *h,unsigned cmd,uint32_t arg,unsigned response,
     if (h->frequency_hz && h->frequency_hz<=50000000u) {
         rc=ensure_legacy_mclk(h);
         if (rc) return rc;
+    }
+    if(!h->card_ready){
+        rc=latch_legacy_timing(h);
+        if(rc)return rc;
+    }
+    if(h->diagnostic_apply){
+        rc=h->diagnostic_apply(h->diagnostic_context);
+        if(rc)return rc;
     }
     /* Remove stale command and data interrupts before issuing a command. */
     w32(h,J250F_REGION_HC,HC_INTERRUPT,INT_ALL);
@@ -266,6 +319,9 @@ static int command(j250f_emmc *h,unsigned cmd,uint32_t arg,unsigned response,
         if (intr&(INT_COMMAND|INT_ERROR_MASK)) break;
         pause_us(h,10);
     }
+    record_command(h,cmd,arg,(uint16_t)((cmd<<8)|command_bits),intr,
+                   (intr&INT_ERROR_MASK)?J250F_E_IO:
+                   ((intr&INT_COMMAND)?J250F_OK:J250F_E_TIMEOUT));
     h->last_interrupt=intr;
     h->last_present=r32(h,J250F_REGION_HC,HC_PRESENT);
     h->last_vendor=r32(h,J250F_REGION_HC,HC_VENDOR_SPEC);
@@ -417,11 +473,13 @@ int j250f_init_host(j250f_emmc *h,const j250f_ops *ops,void *context)
     return J250F_OK;
 }
 
-int j250f_init_card(j250f_emmc *h)
+int j250f_identify_card(j250f_emmc *h)
 {
-    uint32_t ocr=0,rsp=0;
+    uint32_t ocr=0;
     int rc,tries;
     if(!h||!h->host_ready||!h->rails_on||!h->pins_active) return J250F_E_NOT_READY;
+    if(h->card_ready)return J250F_E_NOT_READY;
+    h->cid_valid=0;h->ocr=0;
     /* Fixed 1.8V VQMMC (not a runtime 3V switch); eMMC CMD1 is MMC not SD. */
     rc=short_cmd(h,0,0,RSP_NONE,0);
     if(rc) return rc;
@@ -436,6 +494,15 @@ int j250f_init_card(j250f_emmc *h)
     h->high_capacity=(uint8_t)!!(ocr&(1u<<30));
     rc=command(h,2,0,RSP_136,0,0,0,h->cid);
     if(rc) return rc;
+    h->cid_valid=1;
+    return J250F_OK;
+}
+
+int j250f_init_card(j250f_emmc *h)
+{
+    uint32_t rsp=0;
+    int rc=j250f_identify_card(h);
+    if(rc)return rc;
     h->rca=1;
     rc=short_cmd(h,3,1u<<16,RSP_48,&rsp);
     if(rc) return rc;
