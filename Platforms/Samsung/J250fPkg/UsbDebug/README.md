@@ -1,3 +1,9 @@
+# Previous EP0 interface
+
+This file describes the preceding EP0 build. For this ADB branch, use
+[AdbDebug/README.md](../AdbDebug/README.md), VID/PID 1209:8918 and standard adb.
+The old Python client is retained as a source reference.
+
 # J250F USB debugging
 
 Experimental USB control endpoint on the MSM8917 ChipIdea controller. USB PHY,

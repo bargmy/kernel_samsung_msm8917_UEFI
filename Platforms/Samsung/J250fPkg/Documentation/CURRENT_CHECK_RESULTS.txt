@@ -1,26 +1,9 @@
-Latest source change: verify Host Control 2 legacy-mode bits at <=25MHz and
-print HC2/GCCCFG/TLMM before the first card command.
-
-Build
------
-ARM32 DEBUG Project Mu build: PASS (2026-11-01 22:30 UTC).
-Log: /tmp/j250f-hc2-build.log
-
-Android boot-image packaging
-----------------------------
-Header, 256-byte ARM BootShim, 3MiB UEFI FD, QCDT size, Samsung footer and
-32MiB partition limit: PASS.
-Image: /workspaces/web-k/Mu-J250F-EMMC-DEBUG.img
-Size: 4,280,340 bytes
-SHA-256: 3dd81ecfd03c686d88aa3973c332fba048b36f3c02e5819ca5bd9f71331cc33e
-
-Tests and hardware
-------------------
-The host regression suite was not rerun for the MCLK/HC2 edits. Earlier
-simulated checks covered the BUS_ON pad correction and prior RPM/SMEM/read-only
-paths; they do not validate the new HC2 readback or prove hardware behavior.
-The latest phone log reported CMD2 CRC error IRQ=00028000 and
-VENDOR=00018A1C. The MCLK selector now reads as 2 in that report; HC2 was not
-included. The new build prints HC2, GCCCFG and TLMM before card initialization.
-No phone result from this build exists. No successful CID, capacity, LBA0 read,
-or Block I/O publication is claimed.
+Current branch: experimental/j250f-adb-shell
+Full ARM32 DEBUG Mu build: PASS (2026-11-02).
+Host test/ARM/syntax/ASan/UBSan checks: PASS.
+Google adb host over TCP fixture: PASS (UBSan engine).
+USB header/payload/teardown and EFI upload/launch service mocks: PASS.
+Boot header, ARM EFI machine/subsystem, payload/QCDT/footer checks: PASS.
+Image SHA-256: 39b75497bf5a5eb7a048f2aa652e3331cf81160e46ae76fb968d0dd397ac67d9
+Physical USB bulk, Windows driver binding, ARM EFI execution and eMMC: UNVERIFIED.
+See ../AdbDebug/BUILD_STATUS.md and README.md for evidence and operational limits.

@@ -21,12 +21,19 @@ test: | $(OUT)
 	$(OUT)/map
 	$(CC) $(CFLAGS) $(INC) $(UEFI) $(ROOT)/tests/j250f_lk_mu_integration_test.c $(CORE) -o $(OUT)/integration
 	$(OUT)/integration
+	$(CC) $(CFLAGS) $(INC) $(UEFI) $(ROOT)/tests/j250f_adb_efi_test.c -o $(OUT)/adb-efi
+	$(OUT)/adb-efi
+	$(CC) $(CFLAGS) $(INC) $(UEFI) $(ROOT)/tests/j250f_adb_usb_test.c J250fEmmcDxe/Core/j250f_adb.c -o $(OUT)/adb-usb
+	$(OUT)/adb-usb
 arm: | $(OUT)
 	clang $(ARM) -c J250fEmmcDxe/Core/j250f_emmc.c -o $(OUT)/core-arm.o
 	clang $(ARM) -c J250fEmmcDxe/Core/j250f_board.c -o $(OUT)/board-arm.o
 	clang $(ARM) -c PlatformIntegration/RpmSmd.c -o $(OUT)/rpm-arm.o
 	clang $(ARM) -c PlatformIntegration/SmemMap.c -o $(OUT)/map-arm.o
 syntax: arm
+	clang $(ARM) -fsyntax-only J250fEmmcDxe/J250fUsbGadget.c
+	clang $(ARM) -fsyntax-only J250fEmmcDxe/J250fAdbShell.c
+	clang $(ARM) -fsyntax-only J250fEmmcDxe/Core/j250f_adb.c
 	clang $(ARM) -fsyntax-only PlatformIntegration/J250fPowerDxe.c
 	clang $(ARM) -fsyntax-only J250fEmmcDxe/J250fLkBackend.c
 	clang $(ARM) -fsyntax-only J250fEmmcDxe/J250fLkEmmcDxe.c
@@ -37,3 +44,12 @@ sanitizer: | $(OUT)
 	$(OUT)/map-sanitized
 	$(CC) $(CFLAGS) $(INC) $(UEFI) -fsanitize=address,undefined -fno-omit-frame-pointer $(ROOT)/tests/j250f_lk_mu_integration_test.c $(CORE) -o $(OUT)/integration-sanitized
 	$(OUT)/integration-sanitized
+	$(CC) $(CFLAGS) $(INC) $(UEFI) -fsanitize=address,undefined -fno-omit-frame-pointer $(ROOT)/tests/j250f_adb_efi_test.c -o $(OUT)/adb-efi-sanitized
+	$(OUT)/adb-efi-sanitized
+	$(CC) $(CFLAGS) $(INC) $(UEFI) -fsanitize=address,undefined -fno-omit-frame-pointer $(ROOT)/tests/j250f_adb_usb_test.c J250fEmmcDxe/Core/j250f_adb.c -o $(OUT)/adb-usb-sanitized
+	$(OUT)/adb-usb-sanitized
+
+ADB_BIN ?= adb
+.PHONY: adb-test
+adb-test:
+	python3 $(ROOT)/tests/j250f_adb_protocol_test.py --adb $(ADB_BIN)

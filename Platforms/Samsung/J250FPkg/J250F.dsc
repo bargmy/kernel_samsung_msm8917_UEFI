@@ -68,6 +68,7 @@
   gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80000002
 
 [Components.common]
+  J250fPkg/AdbDebug/Hello/J250fAdbHello.inf
   J250fPkg/PlatformIntegration/J250fPowerDxe.inf
   J250fPkg/J250fEmmcDxe/J250fLkEmmcDxe.inf
   # Keypad Drivers

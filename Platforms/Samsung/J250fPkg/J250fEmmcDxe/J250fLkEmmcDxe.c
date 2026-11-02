@@ -16,6 +16,7 @@
 #include "J250fPowerProtocol.h"
 #include <Library/IoLib.h>
 #include "J250fUsbGadget.h"
+#include "J250fAdbShell.h"
 extern EFI_STATUS EFIAPI J250fUsbDiagCommand(UINT16,UINT16,UINT16,VOID*,UINTN*);
 
 typedef struct {
@@ -168,7 +169,8 @@ EFI_STATUS EFIAPI J250fLkEmmcEntry(
   EFI_STATUS Status;
   CHAR8 Text[256];
   UINTN Len, Second;
-  (VOID)ImageHandle;(VOID)SystemTable;
+  (VOID)SystemTable;
+  J250fAdbShellInit(ImageHandle);
   // DEPEX guarantees CPU/GOP/power readiness. No callback can outlive this
   // image if initialization returns an error and DXE unloads it.
   SerialPortInitialize();
@@ -177,7 +179,7 @@ EFI_STATUS EFIAPI J250fLkEmmcEntry(
   SerialPortWrite((UINT8*)Text,Len);
   {
     EFI_STATUS UsbStatus=J250fUsbGadgetStart(J250fUsbDiagCommand);
-    Len=AsciiSPrint(Text,sizeof(Text),"USB DEBUG start: %r\r\n",UsbStatus);
+    Len=AsciiSPrint(Text,sizeof(Text),"ADB DEBUG start: %r\r\n",UsbStatus);
     SerialPortWrite((UINT8*)Text,Len);
     Len=AsciiSPrint(Text,sizeof(Text),"USB GCC CORE=%08x AHB=%08x USBMODE=%08x\r\n",
       MmioRead32(0x01841004u),MmioRead32(0x01841008u),MmioRead32(0x078DB1A8u));
@@ -186,12 +188,19 @@ EFI_STATUS EFIAPI J250fLkEmmcEntry(
   Status=InstallDisk();
   Len=AsciiSPrint(Text,sizeof(Text),
     "eMMC disk initialization: %r\r\nBlock IO published: %a\r\n"
-    "Holding result for 90 seconds.\r\n",Status,mPublished?"YES (read-only)":"NO");
+    "ADB session stays available until firmware exit or reboot.\r\n",Status,mPublished?"YES (read-only)":"NO");
   SerialPortWrite((UINT8*)Text,Len);
-  for(Second=0;Second<90u*200u;++Second) {
-    (VOID)J250fUsbGadgetPoll();
-    gBS->Stall(5000);
+  while(!J250fAdbShellExitRequested()) {
+    EFI_STATUS Usb=J250fUsbGadgetPoll();
+    if(EFI_ERROR(Usb)){
+      J250fUsbGadgetStop();gBS->Stall(1000000);
+      (VOID)J250fUsbGadgetStart(J250fUsbDiagCommand);
+    }
+    gBS->Stall(1000);
   }
+  /* Allow final WRTE/CLSE responses to drain before disconnecting. */
+  for(Second=0;Second<500;++Second){(VOID)J250fUsbGadgetPoll();gBS->Stall(1000);}
   J250fUsbGadgetStop();
-  return Status;
+  J250fAdbShellFinish();
+  return EFI_SUCCESS;
 }

@@ -236,3 +236,13 @@ EFI_STATUS EFIAPI J250fUsbDiagCommand(UINT16 Request,UINT16 Value,
   *Length=64;
   return EFI_SUCCESS;
 }
+
+EFI_STATUS J250fEmmcGetCid(UINT32 *Cid){
+  if(!mHost.card_ready)return EFI_NOT_READY;
+  CopyMem(Cid,mHost.cid,sizeof(mHost.cid));return EFI_SUCCESS;
+}
+EFI_STATUS J250fEmmcClock400(VOID){
+  int R;if(!mHost.host_ready)return EFI_NOT_READY;
+  R=j250f_set_frequency(&mHost,400000);
+  return R==J250F_OK?EFI_SUCCESS:EFI_DEVICE_ERROR;
+}
