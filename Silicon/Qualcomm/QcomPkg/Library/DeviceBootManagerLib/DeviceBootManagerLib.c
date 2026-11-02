@@ -769,7 +769,7 @@ DeviceBootManagerBeforeConsole (
     MsBootOptionsLibRegisterDefaultBootOptions ();
   } else {
     DEBUG ((DEBUG_INFO,
-      "[Bds] J250F WP81 ESP-only BootFF10 present: skip generic Internal Storage/USB boot entries.\\n"));
+      "[Bds] J250F WP81 ESP-only BootFF10 present: skip generic Internal Storage/USB boot entries.\n"));
   }
   *PlatformConsoles = GetPlatformConsoleList ();
 
