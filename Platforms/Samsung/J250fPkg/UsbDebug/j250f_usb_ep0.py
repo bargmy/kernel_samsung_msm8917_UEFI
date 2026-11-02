@@ -16,7 +16,7 @@ def decode(data):
 def main():
     p=argparse.ArgumentParser()
     p.add_argument('action',choices=['ping','snapshot','probe','monitor'])
-    p.add_argument('--rate',choices=[144000,400000],type=int,default=400000)
+    p.add_argument('--rate',choices=[400000],type=int,default=400000)
     p.add_argument('--yes',action='store_true',help='Allow controller/card reinitialization')
     p.add_argument('--vid',type=lambda x:int(x,0),default=VID)
     p.add_argument('--pid',type=lambda x:int(x,0),default=PID)
@@ -29,6 +29,7 @@ def main():
     if dev is None: p.error("J250F gadget not detected")
     if a.action=='probe' and not a.yes: p.error("probe resets card state; pass --yes")
     if a.count<0 or a.interval<0: p.error("count and interval must be nonnegative")
+    dev.set_configuration(1)
     f=open(a.log,'a',encoding='utf-8') if a.log else None
     try:
         for i in range(a.count if a.action=='monitor' else 1):
@@ -36,7 +37,7 @@ def main():
                 out={'reply':bytes(dev.ctrl_transfer(0xc0,0x70,0,0,12,timeout=30000)).rstrip(b'\0').decode('ascii')}
             else:
                 req=0x72 if a.action=='probe' else 0x71
-                value={400000:1,144000:2}[a.rate] if req==0x72 else 0
+                value={400000:1}[a.rate] if req==0x72 else 0
                 out=decode(dev.ctrl_transfer(0xc0,req,value,0,64,timeout=30000))
             out['timestamp']=time.time()
             line=json.dumps(out,sort_keys=True)

@@ -209,7 +209,6 @@ EFI_STATUS EFIAPI J250fUsbDiagCommand(UINT16 Request,UINT16 Value,
   if(*Length<64)return EFI_BUFFER_TOO_SMALL;
   if(Request==0x72){
     if(Value==1)Hz=400000u;
-    else if(Value==2)Hz=144000u;
     else return EFI_INVALID_PARAMETER;
     if(!mHost.host_ready||mHost.card_ready||ProbeCount>=32u)return EFI_ACCESS_DENIED;
     ProbeCount++;

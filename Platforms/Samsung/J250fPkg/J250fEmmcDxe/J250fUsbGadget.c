@@ -124,7 +124,7 @@ STATIC EFI_STATUS Prime(UINT32 Bit,USB_TD *Td,USB_QH *Qh,UINTN Length){
   Td->Info=((UINT32)Length<<16)|TD_IOC|TD_ACTIVE;
   for(I=0;I<5;I++)Td->Page[I]=(UINT32)((mDma+8192)&~0xfffULL)+(UINT32)(I*4096);
   Td->Page[0]=(UINT32)(mDma+8192);
-  Qh->Next=(UINT32)(mDma+4096+(Bit==TX0?32:0));
+  Qh->Next=(UINT32)(mDma+4096+(Bit==TX0?64:0));
   Qh->Info=0;
   Flush(mBuffer,MAX_DATA);
   Flush(Td,sizeof(*Td));
@@ -193,6 +193,20 @@ STATIC EFI_STATUS UlpiWrite(UINT8 Reg,UINT8 Value){
   for(I=0;I<10000;I++){if(!(R(ULPI)&(1u<<30)))return EFI_SUCCESS;gBS->Stall(10);}
   return EFI_TIMEOUT;
 }
+/* Do not release DMA storage until endpoints are flushed or reset completes.
+ * Reserved pages remain reserved if hardware cannot be stopped. */
+STATIC EFI_STATUS Quiesce(VOID){
+  EFI_STATUS S;
+  W(USBINTR,0);
+  W(USBCMD,R(USBCMD)&~CMD_RUN);
+  W(EPFLUSH,0xffffffffu);
+  S=WaitMask(EPFLUSH,0xffffffffu,0,10000);
+  if(EFI_ERROR(S)){
+    W(USBCMD,(R(USBCMD)&~CMD_RUN)|CMD_RESET);
+    S=WaitMask(USBCMD,CMD_RESET,0,20000);
+  }
+  return S;
+}
 EFI_STATUS J250fUsbGadgetStart(J250F_USB_DIAG_COMMAND Command){
   EFI_STATUS S;
   EFI_PHYSICAL_ADDRESS Addr=0xffffffffULL;
@@ -201,12 +215,12 @@ EFI_STATUS J250fUsbGadgetStart(J250F_USB_DIAG_COMMAND Command){
   /* No ability to enable clocks/PHY: don't reset a dead controller. */
   if(R(0x000)==0xffffffffu||R(0x00c)==0xffffffffu ||
      (R(0x00c)&0xffu)==0)return EFI_NOT_READY;
-  S=gBS->AllocatePages(AllocateMaxAddress,EfiBootServicesData,3,&Addr);
+  S=gBS->AllocatePages(AllocateMaxAddress,EfiReservedMemoryType,3,&Addr);
   if(EFI_ERROR(S))return S;
   mDma=Addr;
   mQh=(USB_QH*)(UINTN)Addr;
   mTdOut=(USB_TD*)(UINTN)(Addr+4096);
-  mTdIn=(USB_TD*)(UINTN)(Addr+4096+32);
+  mTdIn=(USB_TD*)(UINTN)(Addr+4096+64);
   mBuffer=(UINT8*)(UINTN)(Addr+8192);
   mCommand=Command;
   /* LK's MSM8952 ordering: reset -> ULPI selection -> external VBUS -> device mode. */
@@ -233,10 +247,9 @@ EFI_STATUS J250fUsbGadgetStart(J250F_USB_DIAG_COMMAND Command){
   mStarted=TRUE;
   return EFI_SUCCESS;
 Fail:
-  W(USBINTR,0);
-  W(USBCMD,R(USBCMD)&~CMD_RUN);
   mCommand=NULL;
-  gBS->FreePages(Addr,3);
+  if(!EFI_ERROR(Quiesce()))gBS->FreePages(Addr,3);
+  else DEBUG((DEBUG_ERROR,"J250F USB: DMA stop failed; reserved pages retained\n"));
   return S;
 }
 EFI_STATUS J250fUsbGadgetPoll(VOID){
@@ -266,10 +279,7 @@ EFI_STATUS J250fUsbGadgetPoll(VOID){
 }
 VOID J250fUsbGadgetStop(VOID){
   if(!mStarted)return;
-  W(USBINTR,0);
-  W(EPFLUSH,0xffffffffu);
-  (VOID)WaitMask(EPFLUSH,0xffffffffu,0,10000);
-  W(USBCMD,R(USBCMD)&~CMD_RUN);
-  gBS->FreePages(mDma,3);
+  if(!EFI_ERROR(Quiesce()))gBS->FreePages(mDma,3);
+  else DEBUG((DEBUG_ERROR,"J250F USB: DMA stop failed; reserved pages retained\n"));
   mStarted=FALSE;mCommand=NULL;mBuffer=NULL;mQh=NULL;
 }
