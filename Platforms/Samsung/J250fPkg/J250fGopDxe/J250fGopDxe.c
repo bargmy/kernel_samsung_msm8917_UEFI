@@ -8,9 +8,10 @@
   PixelBltOnly for a format that cannot be described by standard 32-bit GOP
   pixel formats.  Never pretend packed 24-bit hardware is linear BGRX.
 
-  For a future *measured* native 32-bit scanout, set the framebuffer PCDs to
-  the genuine base/BPP, and select the matching channel order.  A 32-bit
-  software shadow alone would not remain visible after ExitBootServices.
+  J250fMdp32.c can attempt a STRICTLY-GUARDED conversion of an already
+  running Samsung splash pipe to a newly reserved physical BGRX scanout.
+  If register checks fail, the original 24-bit GOP remains active. This
+  transition is experimental until physically tested on the J250F.
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
@@ -62,6 +63,11 @@ STATIC UINTN                                mHeight;
 STATIC UINTN                                mStride;
 STATIC UINTN                                mBytesPerPixel;
 STATIC UINTN                                mFramebufferBytes;
+STATIC BOOLEAN                              mNativeBgrx = (J250F_GOP_NATIVE_BGRX != 0);
+
+EFI_STATUS EFIAPI J250fTryNativeBgrx(
+  IN UINT64 OldAddress, IN UINT32 Width, IN UINT32 Height,
+  IN UINT32 Stride, OUT EFI_PHYSICAL_ADDRESS *NewAddress);
 
 STATIC EFI_STATUS EFIAPI J250fQueryMode(
   IN EFI_GRAPHICS_OUTPUT_PROTOCOL *This,
@@ -120,15 +126,15 @@ PutPixel(UINTN X, UINTN Y, CONST EFI_GRAPHICS_OUTPUT_BLT_PIXEL *P)
     Dst[1] = P->Green;
     Dst[2] = P->Blue;
   } else {
-#if J250F_GOP_NATIVE_BGRX
-    Dst[0] = P->Blue;
-    Dst[1] = P->Green;
-    Dst[2] = P->Red;
-#else
-    Dst[0] = P->Red;
-    Dst[1] = P->Green;
-    Dst[2] = P->Blue;
-#endif
+    if (mNativeBgrx) {
+      Dst[0] = P->Blue;
+      Dst[1] = P->Green;
+      Dst[2] = P->Red;
+    } else {
+      Dst[0] = P->Red;
+      Dst[1] = P->Green;
+      Dst[2] = P->Blue;
+    }
     Dst[3] = 0;
   }
 }
@@ -142,15 +148,15 @@ GetPixel(UINTN X, UINTN Y, EFI_GRAPHICS_OUTPUT_BLT_PIXEL *P)
     P->Green = Src[1];
     P->Blue = Src[2];
   } else {
-#if J250F_GOP_NATIVE_BGRX
-    P->Blue = Src[0];
-    P->Green = Src[1];
-    P->Red = Src[2];
-#else
-    P->Red = Src[0];
-    P->Green = Src[1];
-    P->Blue = Src[2];
-#endif
+    if (mNativeBgrx) {
+      P->Blue = Src[0];
+      P->Green = Src[1];
+      P->Red = Src[2];
+    } else {
+      P->Red = Src[0];
+      P->Green = Src[1];
+      P->Blue = Src[2];
+    }
   }
   P->Reserved = 0;
 }
@@ -317,6 +323,7 @@ J250fGopEntry(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
 {
   UINT64 Address = FixedPcdGet64(PcdMipiFrameBufferAddress);
   UINT32 Bpp = FixedPcdGet32(PcdMipiFrameBufferPixelBpp);
+  EFI_PHYSICAL_ADDRESS NativeFb = 0;
   UINTN Bytes;
   EFI_STATUS Status;
 
@@ -347,6 +354,25 @@ J250fGopEntry(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
   if (Bpp == 32 && ((Address & 3u) != 0))
     return EFI_UNSUPPORTED;
 
+  /* Samsung starts in known-good packed RGB888; attempt an isolated
+     native BGRX scanout only after verifying the inherited MDP registers.
+     Failed probes leave the original GOP untouched and working. */
+  if (Bpp == 24) {
+    EFI_STATUS NativeStatus = J250fTryNativeBgrx(
+      Address, (UINT32)mWidth, (UINT32)mHeight, (UINT32)mStride, &NativeFb);
+    if (!EFI_ERROR(NativeStatus)) {
+      Address = NativeFb;
+      Bpp = 32;
+      Bytes = 4;
+      mFramebufferBytes = mStride * mHeight * Bytes;
+      mNativeBgrx = TRUE;
+    } else {
+      DEBUG((DEBUG_INFO,
+        "J250F GOP: retaining working RGB888 BLT scanout (%r)\n",
+        NativeStatus));
+    }
+  }
+
   mPixels = (UINT8 *)(UINTN)Address;
   mBytesPerPixel = Bytes;
   ZeroMem(&mInfo, sizeof(mInfo));
@@ -360,11 +386,9 @@ J250fGopEntry(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
     mMode.FrameBufferBase = 0;
     mMode.FrameBufferSize = 0;
   } else {
-#if J250F_GOP_NATIVE_BGRX
-    mInfo.PixelFormat = PixelBlueGreenRedReserved8BitPerColor;
-#else
-    mInfo.PixelFormat = PixelRedGreenBlueReserved8BitPerColor;
-#endif
+    mInfo.PixelFormat = mNativeBgrx
+      ? PixelBlueGreenRedReserved8BitPerColor
+      : PixelRedGreenBlueReserved8BitPerColor;
     mMode.FrameBufferBase = Address;
     mMode.FrameBufferSize = mFramebufferBytes;
   }
