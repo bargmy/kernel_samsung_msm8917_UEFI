@@ -17,7 +17,7 @@
    are linked once into this EFI image, independently of J250fExt4Dxe. */
 #include "../J250fExt4Dxe/Ext4Read.c"
 
-#define WP_FILE_COUNT 3U
+#define WP_FILE_COUNT 1U
 #define WP_SECTOR_SIZE 512U
 
 STATIC EFI_GUID mPhysicalDiskPathGuid = {
@@ -187,10 +187,10 @@ EFI_STATUS EFIAPI J250fWpPrivateStage (VOID) {
   UINT32 Inode, I;
   UINT8 Header[WP_SECTOR_SIZE];
   STATIC CONST CHAR16 *Names[WP_FILE_COUNT] = {
-    L"26.EFIESP.fat", L"27.MainOS.ntfs", L"28.Data.ntfs"
+    L"26.EFIESP.fat"
   };
   STATIC CONST UINT64 Sizes[WP_FILE_COUNT] = {
-    33554432ULL, 2648719360ULL, 4552916992ULL
+    33554432ULL
   };
   if (mBacking.Staged) return EFI_ALREADY_STARTED;
   J250fWpPrivateRelease();
