@@ -26,6 +26,14 @@ virtual partitions**; do not infer that Windows kernel boot is impossible.
    finishes DXE, signals EndOfDxe and enters its ordinary BDS boot flow.
    BDS then attempts `BootFF10` through standard UEFI image loading.
 
+During this ESP-only experiment, the Qualcomm `DeviceBootManagerLib` also
+checks that `BootOrder` consists only of `BootFF10` and that the boot option
+exists. If both checks pass, it **does not register** the separate generic
+`Internal Storage` and `USB` boot options; those use `MsBootPolicy.efi` and
+probe the unrelated `\\EFI\\Microsoft\\Boot\\bootmgfw.efi` path, which
+is absent from the BLU donor ESP. Without the exact marker, normal default
+boot-option registration is unchanged.
+
 The driver intentionally does **not** call `LoadImage` or `StartImage`
 inside DXE entry. This matters because SecurityStubDxe can defer
 third-party EFI images loaded before EndOfDxe, returning
