@@ -14,6 +14,10 @@
 #include <Library/FrameBufferSerialPortLib.h>
 #include <Protocol/GraphicsOutput.h>
 #include <J250fGopSupportLib.h>
+extern VOID EFIAPI J250fGopDiagRecord(
+  EFI_STATUS PreStatus, EFI_STATUS PublishStatus,
+  EFI_STATUS PostStatus, BOOLEAN Attempted);
+
 #include "J250fLkPlatform.h"
 #include "J250fPowerProtocol.h"
 #include <Library/IoLib.h>
@@ -192,22 +196,27 @@ EFI_STATUS EFIAPI J250fLkEmmcEntry(
     EFI_GRAPHICS_OUTPUT_PROTOCOL *Gop = NULL;
     EFI_STATUS GopStatus = gBS->LocateProtocol(
       &gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop);
+    EFI_STATUS BeforeStatus = GopStatus;
+    EFI_STATUS InstallStatus = EFI_NOT_READY;
     BOOLEAN FallbackAttempted = FALSE;
     if (EFI_ERROR(GopStatus) || Gop == NULL) {
       FallbackAttempted = TRUE;
-      GopStatus = J250fGopEntry(ImageHandle, SystemTable);
+      /* ADB recovery must preserve Samsung's working framebuffer. It must
+         never experiment with MDP or 32-bit scanout while debugging GOP. */
+      InstallStatus = J250fGopPublish(ImageHandle, SystemTable, FALSE);
+    } else {
+      InstallStatus = EFI_ALREADY_STARTED;
     }
-    if (!EFI_ERROR(GopStatus)) {
-      Gop = NULL;
-      GopStatus = gBS->LocateProtocol(
-        &gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop);
-      if (!EFI_ERROR(GopStatus) && Gop == NULL)
-        GopStatus = EFI_NOT_FOUND;
-    }
+    Gop = NULL;
+    GopStatus = gBS->LocateProtocol(
+      &gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop);
+    if (!EFI_ERROR(GopStatus) && Gop == NULL)
+      GopStatus = EFI_NOT_FOUND;
+    J250fGopDiagRecord(BeforeStatus, InstallStatus, GopStatus,
+                       FallbackAttempted);
     Len = AsciiSPrint(Text, sizeof(Text),
-      "J250F GOP: %a, protocol=%r, pointer=%p\r\n",
-      FallbackAttempted ? "fallback attempted" : "already installed",
-      GopStatus, Gop);
+      "J250F GOP: fallback=%u, before=%r install=%r after=%r, pointer=%p\r\n",
+      (UINT32)FallbackAttempted, BeforeStatus, InstallStatus, GopStatus, Gop);
     SerialPortWrite((UINT8 *)Text, Len);
   }
   Len=AsciiSPrint(Text,sizeof(Text),"J250F: initializing eMMC (one-bit, 400kHz)...\r\n");
