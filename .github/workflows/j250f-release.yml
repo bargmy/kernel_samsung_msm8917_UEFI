@@ -85,9 +85,9 @@ jobs:
           if-no-files-found: ignore
 
   release:
-    # PRs compile both configurations and upload build artifacts, but
-    # must not create public releases before code is merged to main.
-    if: github.event_name != 'pull_request'
+    # Run after the build matrix finishes, even if RELEASE fails. The DEBUG
+    # artifact is required; PRs never publish releases.
+    if: ${{ always() && github.event_name != 'pull_request' && needs.version.result == 'success' }}
     needs: [version, build]
     runs-on: ubuntu-24.04
     permissions:
@@ -102,37 +102,58 @@ jobs:
           pattern: j250f-image-*
           merge-multiple: true
           path: artifacts
-      - name: Publish both images only after both builds succeed
+      - name: Publish DEBUG (and RELEASE when available)
         shell: bash
         run: |
           set -euo pipefail
           debug="artifacts/Mu-J250F-${RELEASE_TAG}-DEBUG.img"
           release="artifacts/Mu-J250F-${RELEASE_TAG}-RELEASE.img"
-          test -s "$debug"
-          test -s "$release"
+          # A failed RELEASE matrix entry does not prevent publication of a
+          # successfully validated DEBUG image uploaded by its matrix entry.
+          test -s "$debug" || { echo "::error::No successful DEBUG artifact; nothing to release"; exit 1; }
+          test -s "$debug.sha256" || { echo "::error::DEBUG checksum missing"; exit 1; }
           (cd artifacts && sha256sum -c "Mu-J250F-${RELEASE_TAG}-DEBUG.img.sha256")
-          (cd artifacts && sha256sum -c "Mu-J250F-${RELEASE_TAG}-RELEASE.img.sha256")
+          assets=("$debug" "$debug.sha256")
+          title="J250F ${RELEASE_TAG} — DEBUG only"
+          build_status="DEBUG build succeeded; RELEASE image was not produced."
+
+          # Only include RELEASE if its own build completed and its hash matches.
+          # Never publish a missing, partial, or unverified RELEASE image.
+          if [[ -e "$release" || -e "$release.sha256" ]]; then
+            test -s "$release" || { echo "::error::Incomplete RELEASE artifact"; exit 1; }
+            test -s "$release.sha256" || { echo "::error::Incomplete RELEASE checksum"; exit 1; }
+            (cd artifacts && sha256sum -c "Mu-J250F-${RELEASE_TAG}-RELEASE.img.sha256")
+            assets+=("$release" "$release.sha256")
+            title="J250F ${RELEASE_TAG} — DEBUG and RELEASE"
+            build_status="Both DEBUG and RELEASE builds succeeded."
+          fi
+
           cat > notes.md <<EOF
           Samsung SM-J250F / j2y18lte Project Mu ARM32 UEFI firmware.
 
           Commit: ${GITHUB_SHA}
           Build: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
 
-          Separate DEBUG and RELEASE images and SHA-256 checksums are attached.
+          ${build_status}
           DEBUG includes diagnostics and permits unsigned RAM EFI loads without a device path.
-          RELEASE retains normal image verification. Both retain read-only eMMC access and CRC checks.
+          RELEASE (if attached) retains normal image verification.
+          Both variants retain read-only eMMC access and CRC checks.
           Successful compilation does not establish physical hardware operation.
           EOF
+
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            # A rerun may replace assets, but never those of another commit.
+            # Reruns may update assets only for the same commit.
             existing=$(gh release view "$RELEASE_TAG" --json body --jq .body)
             [[ "$existing" == *"Commit: ${GITHUB_SHA}"* ]] || exit 1
+            # Preserve a previously complete release on a partial rerun.
+            if [[ "${#assets[@]}" -gt 2 || "$existing" != *"Both DEBUG and RELEASE builds succeeded."* ]]; then
+              gh release edit "$RELEASE_TAG" --title "$title" --notes-file notes.md
+            fi
           else
             args=()
             if [[ "$GITHUB_REF_TYPE" != tag ]]; then args+=(--prerelease); fi
             gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" \
-              --title "J250F ${RELEASE_TAG} — DEBUG and RELEASE" \
-              --notes-file notes.md "${args[@]}"
+              --title "$title" --notes-file notes.md "${args[@]}"
           fi
-          gh release upload "$RELEASE_TAG" "$debug" "$debug.sha256" \
-            "$release" "$release.sha256" --clobber
+
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
