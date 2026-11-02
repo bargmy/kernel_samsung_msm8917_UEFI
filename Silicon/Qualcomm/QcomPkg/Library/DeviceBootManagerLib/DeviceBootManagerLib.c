@@ -743,33 +743,42 @@ DeviceBootManagerBeforeConsole (
   )
 {
   /*
-   * J250F ESP-only firmware experiment: an already staged virtual disk has
-   * registered BootFF10 and a one-entry BootOrder. Do not append Qualcomm's
-   * generic "Internal Storage" and USB boot entries in this case: their
-   * platform policy probes a different Microsoft EFI path and may fall back
-   * to the wrong boot device. Never suppress the defaults without both
-   * the exact BootOrder marker and a real BootFF10 variable.
+   * The WP81 ESP-only driver exposes this marker only after the private
+   * userdata backing has been staged, the physical UEFI disk has been
+   * disconnected, and a valid BootFF10 option has been registered.
+   * Do NOT infer the mode from BootOrder: BDS can alter that variable.
    */
+  STATIC EFI_GUID EspReadyGuid = {
+    0xd7f18d20,0x49b1,0x4e41,{0x8d,0x1a,0x91,0x46,0x6c,0x7e,0x37,0xa2}
+  };
+  VOID        *ReadyMarker = NULL;
+  EFI_STATUS  MarkerStatus;
+  EFI_STATUS  ChoiceStatus;
+  EFI_STATUS  EntryStatus;
   UINT16      BootChoice = 0;
   UINT8       BootHeader[8];
-  UINTN       Size = sizeof(BootChoice);
-  EFI_STATUS  BootStatus;
-  BOOLEAN     EspOnly = FALSE;
+  UINTN       Size;
 
-  BootStatus = gRT->GetVariable(L"BootOrder", &gEfiGlobalVariableGuid,
-                                NULL, &Size, &BootChoice);
-  if (!EFI_ERROR(BootStatus) && Size == sizeof(BootChoice) &&
-      BootChoice == 0xff10) {
-    Size = sizeof(BootHeader);
-    BootStatus = gRT->GetVariable(L"BootFF10", &gEfiGlobalVariableGuid,
-                                  NULL, &Size, BootHeader);
-    EspOnly = (BootStatus == EFI_BUFFER_TOO_SMALL && Size > sizeof(BootHeader));
-  }
-  if (!EspOnly) {
-    MsBootOptionsLibRegisterDefaultBootOptions ();
+  MarkerStatus = gBS->LocateProtocol(&EspReadyGuid, NULL, &ReadyMarker);
+  Size = sizeof(BootChoice);
+  ChoiceStatus = gRT->GetVariable(L"BootOrder", &gEfiGlobalVariableGuid,
+                                  NULL, &Size, &BootChoice);
+  Size = sizeof(BootHeader);
+  EntryStatus = gRT->GetVariable(L"BootFF10", &gEfiGlobalVariableGuid,
+                                 NULL, &Size, BootHeader);
+
+  DEBUG ((DEBUG_ERROR,
+    "[Bds] WP81 ESP-ready marker=%r markerPtr=%p, BootOrder=%r first=%04x, BootFF10=%r bytes=%u\n",
+    MarkerStatus, ReadyMarker, ChoiceStatus, BootChoice, EntryStatus,
+    (UINT32)Size));
+
+  if (!EFI_ERROR(MarkerStatus) && ReadyMarker != NULL) {
+    /* Keep BDS from selecting Qualcomm's generic internal-storage
+       MsBootPolicy.efi. Only our virtual ESP boot path is eligible. */
+    DEBUG ((DEBUG_ERROR,
+      "[Bds] WP81 ESP-only active: SKIP generic Internal Storage and USB boot options.\n"));
   } else {
-    DEBUG ((DEBUG_INFO,
-      "[Bds] J250F WP81 ESP-only BootFF10 present: skip generic Internal Storage/USB boot entries.\n"));
+    MsBootOptionsLibRegisterDefaultBootOptions ();
   }
   *PlatformConsoles = GetPlatformConsoleList ();
 
