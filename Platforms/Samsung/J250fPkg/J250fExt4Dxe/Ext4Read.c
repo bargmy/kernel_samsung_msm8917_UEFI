@@ -219,7 +219,7 @@ STATIC EFI_STATUS ExtentMap (EXT4_VOLUME *V, CONST UINT8 *Tree,
 STATIC EFI_STATUS MapBlock (EXT4_VOLUME *V, CONST EXT4_NODE *N,
                             UINT64 Logical, UINT64 *Physical,
                             BOOLEAN *Hole) {
-  UINT64 Index, First, Span;
+  UINT64 Index, Span;
   UINT32 Per, Pointer;
   UINTN Levels, Level;
   EFI_STATUS Status;
