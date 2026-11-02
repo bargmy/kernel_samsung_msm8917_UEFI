@@ -34,6 +34,12 @@ build_firmware() {
   make -C BootShim/ARM UEFI_BASE=0x99000000 UEFI_SIZE=0x00300000
   # Submodules are prepared above; stuart_setup would recurse into unused tests.
   stuart_update -c Platforms/Samsung/J250FPkg/PlatformBuild.py TOOL_CHAIN_TAG=CLANG38
+  # Stuart downloads precompiled BaseTools. Rebuild GenFw so our ARM relocation
+  # patch is used by the binary that actually converts the linked firmware.
+  make -C Mu_Basecore/BaseTools/Source/C/Common
+  make -C Mu_Basecore/BaseTools/Source/C/GenFw
+  cp Mu_Basecore/BaseTools/Source/C/bin/GenFw \
+    Mu_Basecore/BaseTools/Bin/Mu-Basetools_extdep/Linux-x86/GenFw
   stuart_build -c Platforms/Samsung/J250FPkg/PlatformBuild.py \
     TOOL_CHAIN_TAG=CLANG38 "TARGET=$mode" RAM_SIZE=1.5 \
     FD_BASE=0x99000000 FD_SIZE=0x00300000 FD_BLOCKS=0x300 TARGET_ARCH=ARM
