@@ -1,6 +1,6 @@
 /** @file
-  Three-partition Windows Phone 8.1 virtual GPT.
-  EFI-visible storage only: EFIESP, MainOS, Data. No physical eMMC handles
+  ESP-only Windows Phone 8.1 virtual GPT for normal BDS.
+  EFI-visible storage only: EFIESP. No physical eMMC handles
   remain after a successful mount. All virtual writes fail protected.
   This does NOT restrict Windows MMIO access after ExitBootServices.
   SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -10,6 +10,8 @@
 #include <Protocol/DevicePath.h>
 #include <Protocol/PartitionInfo.h>
 #include <Protocol/SimpleFileSystem.h>
+#include <Guid/GlobalVariable.h>
+#include <Library/UefiRuntimeServicesTableLib.h>
 #include <Uefi/UefiGpt.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
@@ -18,7 +20,7 @@
 #include <Library/UefiBootServicesTableLib.h>
 
 #define WP_SECTOR 512U
-#define WP_PARTITIONS 3U
+#define WP_PARTITIONS 1U
 #define WP_GPT_ENTRIES 128U
 #define WP_ENTRY_BLOCKS 32U
 #define WP_READ_MAX 32768U
@@ -157,10 +159,6 @@ STATIC EFI_STATUS MakeGpt (VOID) {
   UINTN I, J;
   mWp.Image[0].Name = L"EFIESP";
   mWp.Image[0].Length = 33554432ULL;
-  mWp.Image[1].Name = L"MainOS";
-  mWp.Image[1].Length = 2648719360ULL;
-  mWp.Image[2].Name = L"Data";
-  mWp.Image[2].Length = 4552916992ULL;
   ZeroMem(mWp.Entries, sizeof(mWp.Entries));
   if (sizeof(EFI_PARTITION_ENTRY) != 128 ||
       sizeof(mWp.Entries) != WP_ENTRY_BLOCKS * WP_SECTOR)
@@ -220,14 +218,14 @@ STATIC EFI_STATUS MakeGpt (VOID) {
   return EFI_SUCCESS;
 }
 
-/* A valid view has one virtual physical disk and exactly three logical GPT
+/* A valid view has one virtual physical disk and exactly one logical GPT
    partition handles, all marked read-only. No other Block I/O/PartitionInfo
    handles may be present, even if they are not from eMMC. */
 STATIC EFI_STATUS VerifyTopology (UINTN *Disks, UINTN *Partitions) {
   EFI_HANDLE *Handles = NULL;
   EFI_STATUS Status;
   UINTN Count=0,I,Raw=0,PartCount=0;
-  BOOLEAN Seen[WP_PARTITIONS]={FALSE,FALSE,FALSE};
+  BOOLEAN Seen[WP_PARTITIONS]={FALSE};
   if (!mWp.Active || !mWp.Isolated) return EFI_NOT_READY;
   Status=gBS->LocateHandleBuffer(ByProtocol,&gEfiBlockIoProtocolGuid,
                                   NULL,&Count,&Handles);
@@ -355,6 +353,68 @@ STATIC EFI_HANDLE LocateVirtualEsp (VOID) {
   gBS->FreePool(Handles);
   return Result;
 }
+
+/* Register the ESP boot manager for normal Project Mu BDS.
+   Do not call LoadImage/StartImage in DXE: BDS must run after EndOfDxe.
+   The platform's emulated NV variable mode keeps Boot#### RAM-backed. */
+STATIC EFI_STATUS RegisterBdsBootOption (VOID) {
+  STATIC CONST CHAR16 *Loader=L"\\EFI\\BOOT\\BOOTARM.EFI";
+  STATIC CONST CHAR16 *Description=L"Windows Phone 8.1 EFI-only test";
+  EFI_HANDLE Esp;
+  EFI_DEVICE_PATH_PROTOCOL *Path;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *Fs;
+  EFI_FILE_PROTOCOL *Root=NULL,*File=NULL;
+  EFI_STATUS Status;
+  UINTN PathSize,DescriptionSize,OptionSize;
+  UINT8 *Option;
+  UINT32 Attributes=1U; /* LOAD_OPTION_ACTIVE */
+  UINT16 FilePathLength;
+  UINT16 BootOrder=0xff10;
+  UINT32 VarAttrs=EFI_VARIABLE_NON_VOLATILE |
+    EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS;
+  Status=VerifyTopology(NULL,NULL);
+  if (EFI_ERROR(Status)) return Status;
+  Esp=LocateVirtualEsp();
+  if (!Esp) return EFI_NOT_FOUND;
+  Status=gBS->HandleProtocol(Esp,&gEfiSimpleFileSystemProtocolGuid,(VOID **)&Fs);
+  if (EFI_ERROR(Status)) return Status;
+  Status=Fs->OpenVolume(Fs,&Root);
+  if (EFI_ERROR(Status)) return Status;
+  Status=Root->Open(Root,&File,(CHAR16 *)Loader,EFI_FILE_MODE_READ,0);
+  if (EFI_ERROR(Status)) {Root->Close(Root);return Status;}
+  File->Close(File);
+  Root->Close(Root);
+  Path=FileDevicePath(Esp,(CHAR16 *)Loader);
+  if (!Path) return EFI_OUT_OF_RESOURCES;
+  PathSize=GetDevicePathSize(Path);
+  DescriptionSize=StrSize(Description);
+  if (PathSize > MAX_UINT16 ||
+      PathSize > MAX_UINTN-DescriptionSize-6) {
+    gBS->FreePool(Path);
+    return EFI_INVALID_PARAMETER;
+  }
+  FilePathLength=(UINT16)PathSize;
+  OptionSize=6+DescriptionSize+PathSize;
+  Status=gBS->AllocatePool(EfiBootServicesData,OptionSize,(VOID **)&Option);
+  if (EFI_ERROR(Status)) {gBS->FreePool(Path);return Status;}
+  CopyMem(Option,&Attributes,sizeof(Attributes));
+  CopyMem(Option+4,&FilePathLength,sizeof(FilePathLength));
+  CopyMem(Option+6,Description,DescriptionSize);
+  CopyMem(Option+6+DescriptionSize,Path,PathSize);
+  gBS->FreePool(Path);
+  Status=gRT->SetVariable(L"BootFF10",&gEfiGlobalVariableGuid,
+                           VarAttrs,OptionSize,Option);
+  gBS->FreePool(Option);
+  if (EFI_ERROR(Status)) return Status;
+  return gRT->SetVariable(L"BootOrder",&gEfiGlobalVariableGuid,
+                           VarAttrs,sizeof(BootOrder),&BootOrder);
+}
+EFI_STATUS EFIAPI J250fWpPrepareBds (VOID) {
+  EFI_STATUS Status=WpMount();
+  if (EFI_ERROR(Status)) return Status;
+  return RegisterBdsBootOption();
+}
+
 STATIC EFI_STATUS TryBootManager (BOOLEAN Execute,CHAR8 *Out,UINTN Cap) {
   STATIC CONST CHAR16 *Paths[]={
     L"\\EFI\\BOOT\\BOOTARM.EFI",
@@ -394,7 +454,7 @@ BOOLEAN EFIAPI J250fWpCommand (CONST CHAR8 *Cmd,CHAR8 *Out,
   if (AsciiStrCmp(Cmd,"wp")==0 || AsciiStrCmp(Cmd,"wp status")==0) {
     *Used=AsciiSPrint(Out,Cap,
       "WP81 virtual disk: %a; UEFI eMMC concealed: %a\r\n"
-      "Only EFIESP / MainOS / Data are published after mount.\r\n"
+      "ESP-only BDS test: EFIESP is the sole published partition.\r\n"
       "No Windows kernel MMIO isolation.\r\n"
       "Commands: wp mount | wp verify | wp probe | wp boot CONFIRM\r\n",
       mWp.Active ? "MOUNTED" : "not mounted",
