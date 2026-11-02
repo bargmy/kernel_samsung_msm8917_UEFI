@@ -14,7 +14,8 @@
   J250fUsbGadget.c
   J250fAdbShell.c
   J250fExt4Commands.c
-  J250fWpVirtualDisk.c
+  J250fWpIsolated.c
+  J250fWpPrivate.c
   J250fGopDiag.c
   J250fDeepDebug.c
   J250fEmmcDebug.c
@@ -45,8 +46,9 @@
   gEfiGraphicsOutputProtocolGuid
   gJ250fEmmcPowerProtocolGuid  ## CONSUMES
   gEfiBlockIoProtocolGuid      ## PRODUCES
-  gEfiSimpleFileSystemProtocolGuid  ## CONSUMES (ext4 ADB browser)
-  gEfiPartitionInfoProtocolGuid ## CONSUMES (identify userdata and EFI ESP)
+  gEfiDiskIoProtocolGuid       ## CONSUMES
+  gEfiSimpleFileSystemProtocolGuid ## CONSUMES
+  gEfiPartitionInfoProtocolGuid ## CONSUMES
   gEfiDevicePathProtocolGuid   ## PRODUCES
 [Guids]
   gEfiFileInfoGuid
