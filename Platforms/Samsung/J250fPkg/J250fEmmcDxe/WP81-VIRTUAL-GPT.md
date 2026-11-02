@@ -16,7 +16,9 @@ virtual partitions**; do not infer that Windows kernel boot is impossible.
 5. It publishes a CRC-checked protective MBR, primary/backup GPT and
    exactly one read-only FAT16 partition named `EFIESP`.
 6. It confirms the topology and that the virtual FAT ESP contains
-   `\\EFI\\BOOT\\BOOTARM.EFI`.
+   `\\Windows\\BOOT\\EFI\\BOOTMGFW.EFI` (the donor's actual ARM32
+   Windows Boot Manager). This skips `BOOTARM.EFI`, which otherwise
+   tries to locate `bootmgfw.efi` using a different path.
 7. It installs a UEFI `BootFF10` option pointing to that file and a
    one-entry `BootOrder`. The platform has
    `PcdEmuVariableNvModeEnable=TRUE`, so boot variables are emulated.
