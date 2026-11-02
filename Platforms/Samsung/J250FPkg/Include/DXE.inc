@@ -31,7 +31,7 @@
   INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
   INF MdeModulePkg/Universal/FvSimpleFileSystemDxe/FvSimpleFileSystemDxe.inf
 
-  INF QcomPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
+  INF J250fPkg/J250fGopDxe/J250fGopDxe.inf
   INF QcomPkg/Drivers/KeypadDxe/KeypadDxe.inf
   INF QcomPkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf
 

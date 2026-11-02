@@ -40,7 +40,7 @@ APRIORI DXE {
     INF MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
     INF MdeModulePkg/Universal/BdsDxe/BdsDxe.inf
 
-    INF QcomPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
+    INF J250fPkg/J250fGopDxe/J250fGopDxe.inf
 
     INF EmbeddedPkg/SimpleTextInOutSerial/SimpleTextInOutSerial.inf
     INF MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
