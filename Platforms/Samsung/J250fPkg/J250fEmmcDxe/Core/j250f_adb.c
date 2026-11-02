@@ -106,7 +106,7 @@ static int pump(jadb *a) {
   return 0;
 }
 static int execute(jadb *a, const char *cmd) {
-  char b[3072];
+  char b[4096];
   size_t n = a->ops.execute(a->ops.ctx, cmd, b, sizeof(b));
   if (n > sizeof(b))
     return -1;

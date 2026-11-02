@@ -1,0 +1,21 @@
+diff --git a/SecurityPkg/Library/DxeImageVerificationLib/DxeImageVerificationLib.c b/SecurityPkg/Library/DxeImageVerificationLib/DxeImageVerificationLib.c
+index 4127f013f6..bbf190bec6 100644
+--- a/SecurityPkg/Library/DxeImageVerificationLib/DxeImageVerificationLib.c
++++ b/SecurityPkg/Library/DxeImageVerificationLib/DxeImageVerificationLib.c
+@@ -1698,6 +1698,16 @@ DxeImageVerificationHandler (
+   EFI_STATUS                    DbStatus;
+   BOOLEAN                       IsFound;
+ 
++#if defined(J250F_ADB_RAM_EXECUTION)
++  // Explicit development policy for J250F's ADB RAM loader only. The DXE
++  // core still validates, relocates and loads the PE/COFF image normally.
++  // Keep signed-image verification for file/device-path loads unchanged.
++  if ((File == NULL) && (FileBuffer != NULL) && (FileSize != 0) && !BootPolicy) {
++    DEBUG ((DEBUG_WARN, "J250F ADB: allowing unsigned RAM EFI image (DEBUG policy)\n"));
++    return EFI_SUCCESS;
++  }
++#endif
++
+   SignatureList     = NULL;
+   SignatureListSize = 0;
+   WinCertificate    = NULL;

@@ -5,6 +5,10 @@
 #undef ASSERT
 #undef main
 #include "../Platforms/Samsung/J250fPkg/J250fEmmcDxe/J250fLkBackend.c"
+#include "../Platforms/Samsung/J250fPkg/J250fEmmcDxe/J250fEmmcDebug.c"
+INTN EFIAPI AsciiStrCmp(CONST CHAR8 *A,CONST CHAR8 *B){return strcmp(A,B);}
+INTN EFIAPI AsciiStrnCmp(CONST CHAR8 *A,CONST CHAR8 *B,UINTN N){return strncmp(A,B,N);}
+UINTN EFIAPI AsciiStrLen(CONST CHAR8 *A){return strlen(A);}
 #include "../Platforms/Samsung/J250fPkg/J250fEmmcDxe/J250fLkEmmcDxe.c"
 #include <stdarg.h>
 #undef ASSERT
@@ -133,6 +137,28 @@ int main(void) {
  init_firmware();provider_available=1;hw.suppress_command=17;
  ASSERT(J250fLkEmmcEntry(NULL,NULL)==EFI_SUCCESS && !publish_count && !mPublished);
  ASSERT(hw.cmd_count[17]==1);
+ init_firmware();provider_available=1;
+ ASSERT(J250fLkBoardOpen(&(J250F_LK_DISK){0})==EFI_SUCCESS);
+ mHost.card_ready=0;mProbeCount=0;
+ ASSERT(J250fEmmcSetClock(144000)==EFI_SUCCESS);
+ ASSERT((bh.gcc[0x42008/4]&31)==31 && bh.gcc[0x4200c/4]==3);
+ ASSERT(J250fEmmcTry(TRUE)==EFI_SUCCESS && mHost.cid_valid && !mHost.card_ready);
+ ASSERT(mProbeCount==1);
+ {CHAR8 Out[4096];UINTN Len;UINT32 Clock=MmioRead16(J250F_HC_PHYS+0x2c);
+  ASSERT(J250fEmmcDebugCommand("emmc config set hc2 7 1",Out,sizeof(Out),&Len));
+  ASSERT((MmioRead16(J250F_HC_PHYS+0x3e)&7)==1);
+  ASSERT(MmioRead16(J250F_HC_PHYS+0x2c)==Clock);
+  ASSERT(J250fEmmcTry(TRUE)==EFI_SUCCESS);
+  ASSERT(mHost.trace[(mHost.trace_sequence-1)%J250F_TRACE_DEPTH].hc2%8==1);
+  ASSERT(J250fEmmcDebugCommand("emmc config reset",Out,sizeof(Out),&Len));
+  ASSERT((MmioRead16(J250F_HC_PHYS+0x3e)&7)==0);
+  ASSERT(J250fEmmcDebugCommand("emmc config set hc2 8 8",Out,sizeof(Out),&Len));
+  ASSERT(mProfiles[2].Mask==0);
+ }
+ mProbeCount=32;
+ {unsigned Count=hw.cmd_count[0];
+  ASSERT(J250fEmmcTry(TRUE)==EFI_ACCESS_DENIED && hw.cmd_count[0]==Count);
+ }
  puts("PASS: Mu-header integration simulation, backend+frontend, provider errors, LBA0 required before publication, read-only IO, 400kHz, persistent session beyond 90s and explicit exit, failed read blocks publication");
  return 0;
 }

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #include "J250fAdbShell.h"
+#include "J250fEmmcDebug.h"
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/PrintLib.h>
@@ -32,7 +33,6 @@ STATIC BOOLEAN mComplete, mExit, mReboot;
 extern EFI_STATUS EFIAPI J250fUsbDiagCommand(UINT16, UINT16, UINT16, VOID *,
                                              UINTN *);
 extern EFI_STATUS J250fEmmcGetCid(UINT32 *Cid);
-extern EFI_STATUS J250fEmmcClock400(VOID);
 STATIC BOOLEAN Eq(CONST CHAR8 *A, CONST CHAR8 *B) {
   return AsciiStrCmp(A, B) == 0;
 }
@@ -112,7 +112,7 @@ STATIC UINTN RunEfi(CONST CHAR8 *Args, CHAR8 *Out, UINTN Cap) {
     if (mLastImage)
       gBS->UnloadImage(mLastImage);
     mLastImage = NULL;
-    return AsciiSPrint(Out, Cap, "LoadImage: %r (ARM32 EFI image required)\r\n",
+    return AsciiSPrint(Out, Cap, "LoadImage: %r (policy denial, malformed image, or unsupported format; inspect status)\r\n",
                        S);
   }
   S = gBS->HandleProtocol(mLastImage, &gEfiLoadedImageProtocolGuid,
@@ -163,11 +163,15 @@ STATIC size_t Execute(void *Ctx, const char *Cmd, char *Out, size_t Cap) {
     return AsciiSPrint(
         Out, Cap,
         "help\r\nemmc status | registers | init | cmd2 | dump-cid | set-clock "
-        "400000\r\n"
+        "144000|400000\r\nemmc capabilities | map | read <name> | snapshot | trace [seq]\r\n"
+        "emmc clock | identify | config show|reset|set <target> <mask> <value>\r\n"
         "efi list | run /ram/name.efi [args] | unload [slot]\r\nfirmware "
         "exit\r\nreboot\r\n"
         "Upload: adb push tool.efi /ram/tool.efi (one RAM slot, max 16MiB).\r\n"
-        "cmd2 retries the full identification sequence from CMD0.\r\n");
+        "cmd2/identify stop after CMD2; init continues through capacity discovery.\r\n");
+  { UINTN Used;
+    if(J250fEmmcDebugCommand(Cmd,Out,Cap,&Used))return Used;
+  }
   if (Eq(Cmd, "emmc status") || Eq(Cmd, "emmc registers") ||
       Eq(Cmd, "emmc init") || Eq(Cmd, "emmc cmd2")) {
     BOOLEAN Init = Eq(Cmd, "emmc init") || Eq(Cmd, "emmc cmd2");
@@ -188,8 +192,6 @@ STATIC size_t Execute(void *Ctx, const char *Cmd, char *Out, size_t Cap) {
     return AsciiSPrint(Out, Cap, "CID=%08x %08x %08x %08x\r\n", Cid[0], Cid[1],
                        Cid[2], Cid[3]);
   }
-  if (Eq(Cmd, "emmc set-clock 400000"))
-    return AsciiSPrint(Out, Cap, "Clock: %r\r\n", J250fEmmcClock400());
   if (Eq(Cmd, "efi list")) {
     UINTN I, Used = AsciiSPrint(Out, Cap, "%a %u bytes complete=%u\r\n", mName,
                                 (UINT32)mFileSize, (UINT32)mComplete);

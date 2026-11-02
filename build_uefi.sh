@@ -104,6 +104,17 @@ if [ ${_TARGET_ARCH_TYPE} == ARM ]; then
 	cd ..
 fi
 
+# J250F DEBUG ADB loader policy; the code is inactive without its platform flag.
+if [ "${TARGET_DEVICE}" = "J250F" ]; then
+    if git -C Common/Mu_Tiano_Plus apply --reverse --check ../../MuPatches/J250F_ADB_RAM_Execution.patch 2>/dev/null; then
+        : # Already applied.
+    elif git -C Common/Mu_Tiano_Plus apply --check ../../MuPatches/J250F_ADB_RAM_Execution.patch; then
+        git -C Common/Mu_Tiano_Plus apply ../../MuPatches/J250F_ADB_RAM_Execution.patch || exit 1
+    else
+        _error "Could not apply J250F ADB RAM execution policy patch."
+    fi
+fi
+
 # Start the Real Build of the UEFI
 stuart_setup -c "Platforms/${TARGET_DEVICE_VENDOR}/${TARGET_DEVICE}Pkg/PlatformBuild.py" "TOOL_CHAIN_TAG=${TOOL_CHAIN_TAG}"||_error "\nFailed to Setup UEFI Env!\n"
 stuart_update -c "Platforms/${TARGET_DEVICE_VENDOR}/${TARGET_DEVICE}Pkg/PlatformBuild.py" "TOOL_CHAIN_TAG=${TOOL_CHAIN_TAG}"||_error "\nFailed to Update UEFI Env!\n"

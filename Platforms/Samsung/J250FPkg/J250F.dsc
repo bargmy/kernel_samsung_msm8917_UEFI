@@ -32,6 +32,9 @@
 
 [BuildOptions.common]
   *_*_*_CC_FLAGS = -DDISPLAY_USES_RGBA=$(DISPLAY_USES_RGBA)
+  # ADB RAM applications are explicitly permitted in this development build.
+  # RELEASE and image loads with a device path retain normal verification.
+  DEBUG_*_*_CC_FLAGS = -DJ250F_ADB_RAM_EXECUTION=1
 
 [LibraryClasses.common]
   J250fSdccPlatformLib|GPLDrivers/Library/J250fSdccPlatformLib/J250fSdccPlatformLib.inf

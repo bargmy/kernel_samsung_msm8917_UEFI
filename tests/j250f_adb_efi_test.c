@@ -96,7 +96,9 @@ EFI_STATUS J250fEmmcGetCid(UINT32 *C) {
   (VOID) C;
   return EFI_NOT_READY;
 }
-EFI_STATUS J250fEmmcClock400(VOID) { return EFI_NOT_READY; }
+BOOLEAN J250fEmmcDebugCommand(CONST CHAR8 *C,CHAR8 *O,UINTN N,UINTN *L) {
+ (VOID)C;(VOID)O;(VOID)N;(VOID)L;return FALSE;
+}
 int main(void) {
   jadb_ops O;
   CHAR8 Reply[1024];

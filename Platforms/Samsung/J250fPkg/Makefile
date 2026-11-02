@@ -31,6 +31,7 @@ arm: | $(OUT)
 	clang $(ARM) -c PlatformIntegration/RpmSmd.c -o $(OUT)/rpm-arm.o
 	clang $(ARM) -c PlatformIntegration/SmemMap.c -o $(OUT)/map-arm.o
 syntax: arm
+	clang $(ARM) -fsyntax-only J250fEmmcDxe/J250fEmmcDebug.c
 	clang $(ARM) -fsyntax-only J250fEmmcDxe/J250fUsbGadget.c
 	clang $(ARM) -fsyntax-only J250fEmmcDxe/J250fAdbShell.c
 	clang $(ARM) -fsyntax-only J250fEmmcDxe/Core/j250f_adb.c
