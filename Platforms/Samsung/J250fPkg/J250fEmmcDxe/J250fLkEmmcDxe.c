@@ -174,7 +174,12 @@ EFI_STATUS EFIAPI J250fLkEmmcEntry(
   // DEPEX guarantees CPU/GOP/power readiness. No callback can outlive this
   // image if initialization returns an error and DXE unloads it.
   SerialPortInitialize();
+  // DEBUG uses the framebuffer SerialPortLib, which exports FbConStartScreen.
+  // RELEASE links BaseSerialPortLibNull, which does not export it.  Keep the
+  // debug-only banner without introducing an undefined symbol in RELEASE.
+#if defined(J250F_ADB_RAM_EXECUTION)
   FbConStartScreen();
+#endif
   Len=AsciiSPrint(Text,sizeof(Text),"J250F: initializing eMMC (one-bit, 400kHz)...\r\n");
   SerialPortWrite((UINT8*)Text,Len);
   {

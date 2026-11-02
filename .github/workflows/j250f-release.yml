@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -83,6 +85,9 @@ jobs:
           if-no-files-found: ignore
 
   release:
+    # PRs compile both configurations and upload build artifacts, but
+    # must not create public releases before code is merged to main.
+    if: github.event_name != 'pull_request'
     needs: [version, build]
     runs-on: ubuntu-24.04
     permissions:
