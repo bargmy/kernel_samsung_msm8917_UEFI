@@ -9,6 +9,7 @@
 
 [Sources]
   J250fGopDxe.c
+  J250fMdp32.c
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -23,6 +24,8 @@
   CacheMaintenanceLib
   DebugLib
   PcdLib
+  BaseLib
+  IoLib
 
 [Protocols]
   gEfiCpuArchProtocolGuid ## CONSUMES
