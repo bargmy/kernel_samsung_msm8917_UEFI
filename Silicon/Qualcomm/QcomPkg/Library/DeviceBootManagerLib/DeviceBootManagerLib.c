@@ -64,6 +64,12 @@ static EFI_EVENT  mPostReadyToBootEvent;
 STATIC EFI_GUID mWpEspReadyGuid = {
   0xd7f18d20, 0x49b1, 0x4e41, {0x8d,0x1a,0x91,0x46,0x6c,0x7e,0x37,0xa2}
 };
+/* Instrumentation from MsBootPolicyLib's *existing* LoadImage wrapper.
+   No image authentication/boot policy bypass is performed. */
+extern BOOLEAN    gWp81LoadObserved;
+extern BOOLEAN    gWp81LoadPolicyRejected;
+extern EFI_STATUS gWp81LoadStatus;
+
 STATIC BOOLEAN mWpBootFF10Attempted = FALSE;
 STATIC EFI_STATUS mWpBootFF10Result = EFI_NOT_READY;
 
@@ -1012,42 +1018,63 @@ DeviceBootManagerUnableToBoot (
 
   Status = gBS->LocateProtocol(&mWpEspReadyGuid, NULL, &WpMarker);
   if (!EFI_ERROR(Status) && WpMarker != NULL) {
-    /* Explicit ESP-only mode: give the user the actual BDS status. Avoid
-       replacing it with the generic OS-not-found graphic. In DEBUG use
-       J250F's existing framebuffer serial console (ConOut can be missing). */
-    CHAR8 Buffer[512];
+    /* The original BootFF10 result cannot distinguish LoadImage failure
+       from a started image returning an error. The linked boot policy's
+       LoadImage wrapper records the first-stage result separately. */
+    CHAR8 Buffer[640];
+    CONST CHAR8 *Stage;
     UINTN Length;
-    UINT16 Order = 0xffff;
-    UINTN OrderSize = sizeof(Order);
+    UINT16 Order[64];
+    UINTN OrderBytes = sizeof(Order);
+    UINTN OrderCount = 0;
+    UINT16 OrderFirst = 0xffff;
     EFI_STATUS OrderStatus;
 
+    if (!gWp81LoadObserved) {
+      Stage = "No WP81 LoadImage wrapper trace";
+    } else if (gWp81LoadPolicyRejected) {
+      Stage = "Platform device-path policy refused";
+    } else if (EFI_ERROR(gWp81LoadStatus)) {
+      Stage = "Underlying UEFI LoadImage refused";
+    } else {
+      Stage = "LoadImage OK; StartImage or app failed";
+    }
+
     OrderStatus = gRT->GetVariable(L"BootOrder", &gEfiGlobalVariableGuid,
-                                   NULL, &OrderSize, &Order);
+                                   NULL, &OrderBytes, Order);
+    if (!EFI_ERROR(OrderStatus)) {
+      OrderCount = OrderBytes / sizeof(Order[0]);
+      if (OrderCount != 0) OrderFirst = Order[0];
+    }
 #if defined(J250F_ADB_RAM_EXECUTION)
     FbConStartScreen();
     (VOID)SerialPortInitialize();
 #endif
     Length = AsciiSPrint(Buffer, sizeof(Buffer),
       "\r\nWP81 ESP-ONLY BDS DIAGNOSTICS\r\n"
-      "Project Mu returned to firmware.\r\n"
       "File: Windows/BOOT/EFI/BOOTMGFW.EFI\r\n"
       "BootFF10 attempted: %a\r\n"
-      "BootFF10 result: %r (0x%lx)\r\n"
-      "BootOrder read: %r, first: %04x\r\n"
-      "Physical eMMC is hidden only in UEFI.\r\n"
-      "Windows kernel MMIO is NOT isolated.\r\n"
-      "UEFI virtual disk writes are blocked.\r\n"
+      "Final EFI status: %r (0x%lx)\r\n"
+      "LoadImage hook seen: %a\r\n"
+      "Policy rejected: %a\r\n"
+      "LoadImage result: %r\r\n"
+      "Failure stage: %a\r\n"
+      "BootOrder: %r, entries=%u, first=%04x\r\n"
+      "UEFI eMMC hidden; kernel MMIO NOT isolated.\r\n"
+      "Virtual disk writes blocked.\r\n"
       "Shutting down in 120 seconds.\r\n",
       mWpBootFF10Attempted ? "YES" : "NO",
       mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED,
       (UINT64)(mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED),
-      OrderStatus, Order);
+      gWp81LoadObserved ? "YES" : "NO",
+      gWp81LoadPolicyRejected ? "YES" : "NO",
+      gWp81LoadObserved ? gWp81LoadStatus : EFI_NOT_STARTED,
+      Stage, OrderStatus, (UINT32)OrderCount, OrderFirst);
     (VOID)SerialPortWrite((UINT8 *)Buffer, Length);
-    /* ConOut may not exist on this handset; the framebuffer debug console
-       above is the primary readable path for the DEBUG firmware. */
     if (gST != NULL && gST->ConOut != NULL) {
-      Print(L"\r\nWP81 EFI-only BDS result: %r\r\n",
-            mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED);
+      Print(L"\r\nWP81 BootFF10: %r; LoadImage: %r\r\n",
+            mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED,
+            gWp81LoadObserved ? gWp81LoadStatus : EFI_NOT_STARTED);
     }
     gBS->Stall(120000000);
     gRT->ResetSystem(EfiResetShutdown, EFI_SUCCESS, 0, NULL);
