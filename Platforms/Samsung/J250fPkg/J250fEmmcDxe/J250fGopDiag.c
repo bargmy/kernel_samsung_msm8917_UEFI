@@ -8,6 +8,51 @@
 #include <Library/PrintLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/GraphicsOutput.h>
+#include <J250fGopSupportLib.h>
+
+/* Saved in the live eMMC/ADB module, not in a temporary EFI application.
+   These values allow us to distinguish installation failure from old firmware. */
+STATIC EFI_STATUS mInitialGop = EFI_NOT_READY;
+STATIC EFI_STATUS mPublishGop = EFI_NOT_READY;
+STATIC EFI_STATUS mFinalGop = EFI_NOT_READY;
+STATIC BOOLEAN mGopAttempted;
+STATIC BOOLEAN mGopRecorded;
+
+VOID EFIAPI
+J250fGopDiagRecord(EFI_STATUS PreStatus, EFI_STATUS PublishStatus,
+                   EFI_STATUS PostStatus, BOOLEAN Attempted)
+{
+  mInitialGop = PreStatus;
+  mPublishGop = PublishStatus;
+  mFinalGop = PostStatus;
+  mGopAttempted = Attempted;
+  mGopRecorded = TRUE;
+}
+
+/* Never changes the Qualcomm display controller. The phone's inherited
+   physical RGB888 buffer remains the backing store if GOP publishes. */
+UINTN EFIAPI
+J250fGopRepairCommand(OUT CHAR8 *Out, IN UINTN Cap)
+{
+  EFI_GRAPHICS_OUTPUT_PROTOCOL *Gop = NULL;
+  EFI_STATUS Before, Publish, After;
+  if (Out == NULL || Cap == 0)
+    return 0;
+  Before = gBS->LocateProtocol(
+    &gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop);
+  Publish = J250fGopPublish(NULL, NULL, FALSE);
+  Gop = NULL;
+  After = gBS->LocateProtocol(
+    &gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop);
+  if (!EFI_ERROR(After) && Gop == NULL)
+    After = EFI_NOT_FOUND;
+  J250fGopDiagRecord(Before, Publish, After, TRUE);
+  return AsciiSPrint(Out, Cap,
+    "GOPDIAG/4 24-bit-only repair: before=%r publish=%r after=%r GOP=%p\r\n"
+    "No MDSS register changes or eMMC access. Now run gop status.\r\n",
+    Before, Publish, After, Gop);
+}
+
 
 #define GOP_TEST_WIDTH  192u
 #define GOP_TEST_HEIGHT 16u
@@ -57,7 +102,11 @@ J250fGopDebugCommand(IN BOOLEAN RunTest, OUT CHAR8 *Out, IN UINTN Cap)
     gBS->FreePool(Handles);
 
   Used = AsciiSPrint(Out, Cap,
+    "GOPDIAG/4 startup-recorded=%u fallback-attempted=%u"
+    " before=%r publish=%r after=%r\r\n"
     "GOP LocateProtocol=%r; LocateHandleBuffer=%r; handles=%u\r\n",
+    (UINT32)mGopRecorded, (UINT32)mGopAttempted,
+    mInitialGop, mPublishGop, mFinalGop,
     Status, HandlesStatus, (UINT32)HandleCount);
   if (EFI_ERROR(Status) || Gop == NULL) {
     Used += AsciiSPrint(Out + Used, Cap - Used,
