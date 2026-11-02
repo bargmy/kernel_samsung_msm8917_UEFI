@@ -1036,14 +1036,13 @@ DeviceBootManagerUnableToBoot (
       "BootOrder read: %r, first: %04x\r\n"
       "Physical eMMC is hidden only in UEFI.\r\n"
       "Windows kernel MMIO is NOT isolated.\r\n"
-      "No physical storage was modified.\r\n"
+      "UEFI virtual disk writes are blocked.\r\n"
       "Shutting down in 120 seconds.\r\n",
       mWpBootFF10Attempted ? "YES" : "NO",
       mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED,
       (UINT64)(mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED),
       OrderStatus, Order);
     (VOID)SerialPortWrite((UINT8 *)Buffer, Length);
-    DEBUG ((DEBUG_ERROR, "%a", Buffer));
     /* ConOut may not exist on this handset; the framebuffer debug console
        above is the primary readable path for the DEBUG firmware. */
     if (gST != NULL && gST->ConOut != NULL) {
