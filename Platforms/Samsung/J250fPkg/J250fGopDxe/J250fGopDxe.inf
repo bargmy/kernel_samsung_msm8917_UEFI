@@ -1,0 +1,40 @@
+# J250F bootloader-inherited GOP (no MDSS mode switching)
+[Defines]
+  INF_VERSION = 0x00010005
+  BASE_NAME = J250fGopDxe
+  FILE_GUID = b41daabb-712c-4e51-8e67-229c0f412581
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT = J250fGopEntry
+
+[Sources]
+  J250fGopDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  ArmPkg/ArmPkg.dec
+  QcomPkg/QcomPkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  BaseMemoryLib
+  CacheMaintenanceLib
+  DebugLib
+  PcdLib
+
+[Protocols]
+  gEfiCpuArchProtocolGuid ## CONSUMES
+  gEfiGraphicsOutputProtocolGuid ## PRODUCES
+  gEfiDevicePathProtocolGuid ## PRODUCES
+
+[FixedPcd]
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferWidth
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferHeight
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelsPerScanLine
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferAddress
+
+[Depex]
+  gEfiCpuArchProtocolGuid
