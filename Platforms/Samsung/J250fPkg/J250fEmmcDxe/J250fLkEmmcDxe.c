@@ -14,6 +14,9 @@
 #include <Library/FrameBufferSerialPortLib.h>
 #include "J250fLkPlatform.h"
 #include "J250fPowerProtocol.h"
+#include <Library/IoLib.h>
+#include "J250fUsbGadget.h"
+extern EFI_STATUS EFIAPI J250fUsbDiagCommand(UINT16,UINT16,UINT16,VOID*,UINTN*);
 
 typedef struct {
   VENDOR_DEVICE_PATH Vendor;
@@ -172,11 +175,23 @@ EFI_STATUS EFIAPI J250fLkEmmcEntry(
   FbConStartScreen();
   Len=AsciiSPrint(Text,sizeof(Text),"J250F: initializing eMMC (one-bit, 400kHz)...\r\n");
   SerialPortWrite((UINT8*)Text,Len);
+  {
+    EFI_STATUS UsbStatus=J250fUsbGadgetStart(J250fUsbDiagCommand);
+    Len=AsciiSPrint(Text,sizeof(Text),"USB DEBUG start: %r\r\n",UsbStatus);
+    SerialPortWrite((UINT8*)Text,Len);
+    Len=AsciiSPrint(Text,sizeof(Text),"USB GCC CORE=%08x AHB=%08x USBMODE=%08x\r\n",
+      MmioRead32(0x01841004u),MmioRead32(0x01841008u),MmioRead32(0x078DB1A8u));
+    SerialPortWrite((UINT8*)Text,Len);
+  }
   Status=InstallDisk();
   Len=AsciiSPrint(Text,sizeof(Text),
     "eMMC disk initialization: %r\r\nBlock IO published: %a\r\n"
     "Holding result for 90 seconds.\r\n",Status,mPublished?"YES (read-only)":"NO");
   SerialPortWrite((UINT8*)Text,Len);
-  for(Second=0;Second<90;++Second)gBS->Stall(1000000);
+  for(Second=0;Second<90u*200u;++Second) {
+    (VOID)J250fUsbGadgetPoll();
+    gBS->Stall(5000);
+  }
+  J250fUsbGadgetStop();
   return Status;
 }

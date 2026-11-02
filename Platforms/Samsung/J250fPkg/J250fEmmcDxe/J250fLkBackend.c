@@ -190,3 +190,50 @@ EFI_STATUS EFIAPI J250fLkBoardOpen(OUT J250F_LK_DISK *Disk) {
   Disk->ReadBlocks=ReadMmc;
   return EFI_SUCCESS;
 }
+
+/* Experimental USB diagnostics: no MMC writes or arbitrary MMIO. */
+EFI_STATUS EFIAPI J250fUsbDiagCommand(UINT16 Request,UINT16 Value,
+  UINT16 Index,VOID *Output,UINTN *Length){
+  UINT32 *V=(UINT32*)Output;
+  UINT32 Hz=0;
+  int Result=J250F_E_NOT_READY;
+  STATIC UINT32 ProbeCount=0;
+  (VOID)Index;
+  if(Output==NULL||Length==NULL)return EFI_INVALID_PARAMETER;
+  if(Request==0x70){
+    STATIC CONST UINT8 Hello[12]={'J','2','5','0','F','/','U','S','B','/','1',0};
+    if(*Length<sizeof(Hello))return EFI_BUFFER_TOO_SMALL;
+    CopyMem(Output,Hello,sizeof(Hello));*Length=sizeof(Hello);return EFI_SUCCESS;
+  }
+  if(Request!=0x71&&Request!=0x72)return EFI_UNSUPPORTED;
+  if(*Length<64)return EFI_BUFFER_TOO_SMALL;
+  if(Request==0x72){
+    if(Value==1)Hz=400000u;
+    else if(Value==2)Hz=144000u;
+    else return EFI_INVALID_PARAMETER;
+    if(!mHost.host_ready||mHost.card_ready||ProbeCount>=32u)return EFI_ACCESS_DENIED;
+    ProbeCount++;
+    j250f_allow_writes(&mHost,0);
+    Result=j250f_set_frequency(&mHost,Hz);
+    if(Result==J250F_OK)Result=j250f_init_card(&mHost);
+    j250f_allow_writes(&mHost,0);
+  }
+  V[0]=0x4742444au;
+  V[1]=1u;
+  V[2]=(Request==0x72)?(UINT32)Result:0u;
+  V[3]=mHost.host_ready;
+  V[4]=mHost.card_ready;
+  V[5]=mHost.frequency_hz;
+  V[6]=mHost.last_command;
+  V[7]=mHost.last_interrupt;
+  V[8]=mHost.last_r1;
+  V[9]=mHost.last_present;
+  V[10]=mHost.last_vendor;
+  V[11]=mHost.last_dll;
+  V[12]=mHost.last_clock;
+  V[13]=MmioRead32((UINTN)J250F_HC_PHYS+0x30u);
+  V[14]=MmioRead32((UINTN)J250F_HC_PHYS+0x24u);
+  V[15]=MmioRead32((UINTN)J250F_HC_PHYS+0x10cu);
+  *Length=64;
+  return EFI_SUCCESS;
+}

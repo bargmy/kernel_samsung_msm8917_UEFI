@@ -11,6 +11,7 @@
 [Sources]
   J250fLkEmmcDxe.c
   J250fLkBackend.c
+  J250fUsbGadget.c
   Core/j250f_emmc.c
   Core/j250f_board.c
 [Packages]
@@ -23,6 +24,7 @@
   BaseLib
   BaseMemoryLib
   DebugLib
+  CacheMaintenanceLib
   IoLib
   TimerLib
   SerialPortLib
