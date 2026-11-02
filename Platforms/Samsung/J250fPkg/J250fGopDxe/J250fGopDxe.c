@@ -319,7 +319,9 @@ J250fBlt(IN EFI_GRAPHICS_OUTPUT_PROTOCOL *This,
 }
 
 EFI_STATUS EFIAPI
-J250fGopEntry(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
+J250fGopPublish(IN EFI_HANDLE ImageHandle,
+                 IN EFI_SYSTEM_TABLE *SystemTable,
+                 IN BOOLEAN TryNative32)
 {
   UINT64 Address = FixedPcdGet64(PcdMipiFrameBufferAddress);
   UINT32 Bpp = FixedPcdGet32(PcdMipiFrameBufferPixelBpp);
@@ -367,7 +369,7 @@ J250fGopEntry(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
   /* Samsung starts in known-good packed RGB888; attempt an isolated
      native BGRX scanout only after verifying the inherited MDP registers.
      Failed probes leave the original GOP untouched and working. */
-  if (Bpp == 24) {
+  if (Bpp == 24 && TryNative32) {
     EFI_STATUS NativeStatus = J250fTryNativeBgrx(
       Address, (UINT32)mWidth, (UINT32)mHeight, (UINT32)mStride, &NativeFb);
     if (!EFI_ERROR(NativeStatus)) {
@@ -419,4 +421,12 @@ J250fGopEntry(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
     (UINT32)mWidth, (UINT32)mHeight, (UINT32)mStride, Bpp,
     Address, (UINT32)mInfo.PixelFormat, Status));
   return Status;
+}
+
+EFI_STATUS EFIAPI
+J250fGopEntry(IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
+{
+  /* Early dedicated GOP DXE preserves experimental native-32-bit detection.
+     The ADB/eMMC recovery path instead uses Publish(FALSE). */
+  return J250fGopPublish(ImageHandle, SystemTable, TRUE);
 }

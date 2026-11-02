@@ -15,4 +15,14 @@ J250fGopEntry (
   IN EFI_SYSTEM_TABLE *SystemTable
   );
 
+/* Publish the inherited 24-bit GOP without probing or changing MDSS registers.
+   TryNative32=TRUE retains the original experimental 32-bit path. */
+EFI_STATUS EFIAPI
+J250fGopPublish (
+  IN EFI_HANDLE ImageHandle,
+  IN EFI_SYSTEM_TABLE *SystemTable,
+  IN BOOLEAN TryNative32
+  );
+
+
 #endif

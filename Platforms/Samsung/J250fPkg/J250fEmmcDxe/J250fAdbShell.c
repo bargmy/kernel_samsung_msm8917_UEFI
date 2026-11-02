@@ -34,6 +34,7 @@ extern EFI_STATUS EFIAPI J250fUsbDiagCommand(UINT16, UINT16, UINT16, VOID *,
                                              UINTN *);
 extern EFI_STATUS J250fEmmcGetCid(UINT32 *Cid);
 extern UINTN EFIAPI J250fGopDebugCommand(BOOLEAN RunTest, CHAR8 *Out, UINTN Cap);
+extern UINTN EFIAPI J250fGopRepairCommand(CHAR8 *Out, UINTN Cap);
 STATIC BOOLEAN Eq(CONST CHAR8 *A, CONST CHAR8 *B) {
   return AsciiStrCmp(A, B) == 0;
 }
@@ -166,7 +167,7 @@ STATIC size_t Execute(void *Ctx, const char *Cmd, char *Out, size_t Cap) {
         "help\r\nemmc status | registers | init | cmd2 | dump-cid | set-clock "
         "144000|400000\r\nemmc capabilities | map | read <name> | snapshot | trace [seq]\r\n"
         "emmc clock | identify | config show|reset|set <target> <mask> <value>\r\n"
-        "gop status | gop test\r\n"
+        "gop status | gop repair | gop test\r\n"
         "efi list | run /ram/name.efi [args] | unload [slot]\r\nfirmware "
         "exit\r\nreboot\r\n"
         "Upload: adb push tool.efi /ram/tool.efi (one RAM slot, max 16MiB).\r\n"
@@ -196,6 +197,8 @@ STATIC size_t Execute(void *Ctx, const char *Cmd, char *Out, size_t Cap) {
   }
   if (Eq(Cmd, "gop status") || Eq(Cmd, "gop test"))
     return J250fGopDebugCommand(Eq(Cmd, "gop test"), Out, Cap);
+  if (Eq(Cmd, "gop repair"))
+    return J250fGopRepairCommand(Out, Cap);
   if (Eq(Cmd, "efi list")) {
     UINTN I, Used = AsciiSPrint(Out, Cap, "%a %u bytes complete=%u\r\n", mName,
                                 (UINT32)mFileSize, (UINT32)mComplete);

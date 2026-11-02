@@ -55,6 +55,35 @@ over. The DXE's GOP/CPU/power dependencies must first be satisfied. This debug
 mode holds the DXE entry point until explicit exit; other drivers may not yet
 have dispatched, which can limit protocols available to uploaded applications.
 
+## GOP diagnostics after build 14 (protocol still missing)
+
+The previous firmware can print `GOP LocateProtocol=Not Found` but hides the
+actual *startup publication result* in the screen-only boot log.
+
+This update uses marker **`GOPDIAG/4`** so you can verify the phone is running
+the new code. It records `before`, `publish`, and `after` EFI statuses at
+startup; `gop status` returns them over ADB.
+
+```bash
+adb -s J250F-UEFI shell gop status
+adb -s J250F-UEFI shell gop repair
+adb -s J250F-UEFI shell gop status
+adb -s J250F-UEFI shell gop test
+```
+
+**Only run `gop test` after the status reports `LocateProtocol=Success`.**
+
+`gop repair` is an **explicit** attempt to install the inherited
+540x960/24-bit framebuffer as an `EFI_GRAPHICS_OUTPUT_PROTOCOL`. It
+intentionally **skips** experimental MDP 32-bit scanout switching; it does
+not touch SDCC1, GPT, or eMMC. Its return text includes the actual protocol
+publication return status, allowing diagnosis of errors such as
+`EFI_INVALID_PARAMETER` or `EFI_OUT_OF_RESOURCES`.
+
+`format=3` / `PixelBltOnly` is the correct first target. This does not yet
+meet Windows' 32-bit BGRX requirement. The already-working text console does
+not itself imply a registered GOP protocol.
+
 ## GOP missing from the running firmware: registration recovery
 
 If `gop status` reports **`LocateProtocol=Not Found` and `handles=0`**,
