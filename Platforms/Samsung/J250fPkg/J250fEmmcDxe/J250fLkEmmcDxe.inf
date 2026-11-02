@@ -43,6 +43,7 @@
   gEfiGraphicsOutputProtocolGuid
   gJ250fEmmcPowerProtocolGuid  ## CONSUMES
   gEfiBlockIoProtocolGuid      ## PRODUCES
+  gEfiSimpleFileSystemProtocolGuid  ## CONSUMES (ext4 ADB browser)
   gEfiDevicePathProtocolGuid   ## PRODUCES
 [Depex]
   gEfiCpuArchProtocolGuid AND gJ250fEmmcPowerProtocolGuid

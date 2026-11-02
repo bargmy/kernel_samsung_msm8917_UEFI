@@ -23,9 +23,6 @@ STATIC UINT32 Le32 (CONST UINT8 *P) {
   return (UINT32)P[0] | ((UINT32)P[1] << 8) |
          ((UINT32)P[2] << 16) | ((UINT32)P[3] << 24);
 }
-STATIC UINT64 Le64 (CONST UINT8 *P) {
-  return (UINT64)Le32(P) | ((UINT64)Le32(P + 4) << 32);
-}
 STATIC UINTN MinN (UINTN A, UINTN B) { return A < B ? A : B; }
 
 /* All access is within a partition's BlockIo LastBlock. ReadBlocks is the
