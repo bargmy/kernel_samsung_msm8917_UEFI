@@ -36,6 +36,7 @@ extern EFI_STATUS J250fEmmcGetCid(UINT32 *Cid);
 extern UINTN EFIAPI J250fGopDebugCommand(BOOLEAN RunTest, CHAR8 *Out, UINTN Cap);
 extern UINTN EFIAPI J250fGopRepairCommand(CHAR8 *Out, UINTN Cap);
 extern UINTN EFIAPI J250fDeepDebugCommand(CONST CHAR8 *Args, CHAR8 *Out, UINTN Cap);
+extern BOOLEAN EFIAPI J250fExt4Command(CONST CHAR8 *Cmd, CHAR8 *Out, UINTN Cap, UINTN *Used);
 STATIC BOOLEAN Eq(CONST CHAR8 *A, CONST CHAR8 *B) {
   return AsciiStrCmp(A, B) == 0;
 }
@@ -170,12 +171,14 @@ STATIC size_t Execute(void *Ctx, const char *Cmd, char *Out, size_t Cap) {
         "emmc clock | identify | config show|reset|set <target> <mask> <value>\r\n"
         "gop status | gop repair | gop test\r\n"
         "dbg help | dbg <diagnostic> (generic firmware debugger)\r\n"
+        "ext4 volumes | ls <index> <path> | cat <index> <path>\r\n"
         "efi list | run /ram/name.efi [args] | unload [slot]\r\nfirmware "
         "exit\r\nreboot\r\n"
         "Upload: adb push tool.efi /ram/tool.efi (one RAM slot, max 16MiB).\r\n"
         "cmd2/identify stop after CMD2; init continues through capacity discovery.\r\n");
   { UINTN Used;
     if(J250fEmmcDebugCommand(Cmd,Out,Cap,&Used))return Used;
+    if(J250fExt4Command(Cmd,Out,Cap,&Used))return Used;
   }
   if (Eq(Cmd, "emmc status") || Eq(Cmd, "emmc registers") ||
       Eq(Cmd, "emmc init") || Eq(Cmd, "emmc cmd2")) {

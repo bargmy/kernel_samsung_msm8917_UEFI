@@ -230,6 +230,15 @@ EFI_STATUS EFIAPI J250fLkEmmcEntry(
     SerialPortWrite((UINT8*)Text,Len);
   }
   Status=InstallDisk();
+  /* DiskIo, GPT PartitionDxe and ext4 are DXE APRIORI drivers. This entry
+     runs a persistent ADB loop, so DXE would not dispatch more drivers until
+     firmware exit. Connect the read-only physical disk recursively first. */
+  if (!EFI_ERROR(Status) && mPublished) {
+    EFI_STATUS Connect = gBS->ConnectController(mDisk.Handle, NULL, NULL, TRUE);
+    Len = AsciiSPrint(Text, sizeof(Text),
+      "Read-only partition/filesystem connection: %r\r\n", Connect);
+    SerialPortWrite((UINT8 *)Text, Len);
+  }
   Len=AsciiSPrint(Text,sizeof(Text),
     "eMMC disk initialization: %r\r\nBlock IO published: %a\r\n"
     "ADB session stays available until firmware exit or reboot.\r\n",Status,mPublished?"YES (read-only)":"NO");

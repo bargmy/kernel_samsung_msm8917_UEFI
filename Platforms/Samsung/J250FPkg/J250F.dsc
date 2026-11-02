@@ -78,6 +78,7 @@
   # Build only, not included in the phone firmware image.
   J250fPkg/J250fGopDxe/J250fGopTest.inf
   J250fPkg/J250fEmmcDxe/J250fLkEmmcDxe.inf
+  J250fPkg/J250fExt4Dxe/J250fExt4Dxe.inf
   # Keypad Drivers
   QcomPkg/Drivers/KeypadDxe/KeypadDxe.inf
   QcomPkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf

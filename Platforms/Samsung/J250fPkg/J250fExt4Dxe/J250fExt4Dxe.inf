@@ -1,0 +1,36 @@
+## @file
+# Read-only ext4 SimpleFileSystem driver for ARM32 J250F.
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+[Defines]
+  INF_VERSION = 0x00010017
+  BASE_NAME = J250fExt4Dxe
+  FILE_GUID = 98b8cd83-74f8-448b-9756-3324d24de3b9
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT = J250fExt4Entry
+
+[Sources]
+  J250fExt4Dxe.c
+  Ext4Read.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  J250fPkg/J250fPkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  BaseMemoryLib
+  DebugLib
+
+[Protocols]
+  gEfiDriverBindingProtocolGuid  ## PRODUCES
+  gEfiBlockIoProtocolGuid        ## CONSUMES
+  gEfiSimpleFileSystemProtocolGuid ## PRODUCES
+
+[Guids]
+  gEfiFileInfoGuid
+  gEfiFileSystemInfoGuid
+
+[Depex]
+  TRUE
