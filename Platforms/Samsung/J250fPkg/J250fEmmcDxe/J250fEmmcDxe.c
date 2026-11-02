@@ -392,7 +392,9 @@ J250fEmmcDxeEntryPoint (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTa
   Dev->Path.End.Length[1] = 0;
 
   SerialPortInitialize ();
+  #if defined(J250F_ADB_RAM_EXECUTION)
   FbConStartScreen ();
+  #endif
   {
     CHAR8 Text[128];
     UINTN Len = AsciiSPrint (Text, sizeof (Text), "J250F: initializing eMMC at 400kHz...\r\n");
@@ -402,7 +404,9 @@ J250fEmmcDxeEntryPoint (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTa
   {
     CHAR8 Text[384];
     UINTN Len, Second;
+    #if defined(J250F_ADB_RAM_EXECUTION)
     FbConStartScreen ();
+    #endif
     if (EFI_ERROR (Status)) {
       Len = AsciiSPrint (Text, sizeof (Text),
         "J250F eMMC initialization failed: %r\r\nCMD=%u IRQ=%08x R1=%08x\r\nSTATE_BEFORE_RESET=%08x\r\n",

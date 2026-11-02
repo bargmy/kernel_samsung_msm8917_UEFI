@@ -39,7 +39,9 @@ EFI_STATUS EFIAPI J250fPowerEntry (EFI_HANDLE Image, EFI_SYSTEM_TABLE *System)
   UINT32 Snapshot[6];
   UINTN Length, Second;
   SerialPortInitialize ();
+  #if defined(J250F_ADB_RAM_EXECUTION)
   FbConStartScreen ();
+  #endif
   Length = AsciiSPrint (Text, sizeof (Text), "J250F: opening RPM-SMD power service...\r\n");
   SerialPortWrite ((UINT8 *)Text, Length);
   S = J250fMapRpmSmem ();
@@ -49,7 +51,9 @@ EFI_STATUS EFIAPI J250fPowerEntry (EFI_HANDLE Image, EFI_SYSTEM_TABLE *System)
   if (!EFI_ERROR (S)) S = gBS->InstallMultipleProtocolInterfaces (&Image,
     &gJ250fEmmcPowerProtocolGuid, &mPower, NULL);
   if (EFI_ERROR (S)) {
+    #if defined(J250F_ADB_RAM_EXECUTION)
     FbConStartScreen ();
+    #endif
     Length = AsciiSPrint (Text, sizeof (Text),
       "J250F RPM power backend failed: %r\r\nSTAGE=%a\r\n"
       "No eMMC initialization attempted.\r\nHolding for 90 seconds.\r\n",
