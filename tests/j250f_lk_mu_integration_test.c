@@ -5,6 +5,10 @@
 #undef ASSERT
 #undef main
 #include "../Platforms/Samsung/J250fPkg/J250fEmmcDxe/J250fLkBackend.c"
+#include "../Platforms/Samsung/J250fPkg/J250fEmmcDxe/J250fEmmcDebug.c"
+INTN EFIAPI AsciiStrCmp(CONST CHAR8 *A,CONST CHAR8 *B){return strcmp(A,B);}
+INTN EFIAPI AsciiStrnCmp(CONST CHAR8 *A,CONST CHAR8 *B,UINTN N){return strncmp(A,B,N);}
+UINTN EFIAPI AsciiStrLen(CONST CHAR8 *A){return strlen(A);}
 #include "../Platforms/Samsung/J250fPkg/J250fEmmcDxe/J250fLkEmmcDxe.c"
 #include <stdarg.h>
 #undef ASSERT
@@ -18,7 +22,13 @@ EFI_GUID gEfiBlockIoProtocolGuid={0}, gEfiDevicePathProtocolGuid={0},
          gJ250fEmmcDevicePathGuid={.Data1=1},gJ250fEmmcPowerProtocolGuid={.Data1=2};
 static J250F_EMMC_POWER_PROTOCOL power_api;
 static int publish_count, provider_available, force_power_failure;
-static UINTN held_us;
+static UINTN held_us,usb_polls,usb_stops;
+EFI_STATUS J250fUsbGadgetStart(J250F_USB_DIAG_COMMAND C){(void)C;return EFI_SUCCESS;}
+EFI_STATUS J250fUsbGadgetPoll(VOID){usb_polls++;return EFI_SUCCESS;}
+VOID J250fUsbGadgetStop(VOID){usb_stops++;}
+VOID J250fAdbShellInit(EFI_HANDLE P){(void)P;usb_polls=usb_stops=0;}
+BOOLEAN J250fAdbShellExitRequested(VOID){return usb_polls>=100001;}
+VOID J250fAdbShellFinish(VOID){}
 
 UINT8 EFIAPI MmioRead8(UINTN a) {
     if(a>=J250F_HC_PHYS && a<J250F_HC_PHYS+J250F_HC_SIZE)
@@ -32,6 +42,7 @@ UINT16 EFIAPI MmioRead16(UINTN a) {
     return read16(&hw,J250F_REGION_HC,(uint32_t)(a-J250F_HC_PHYS));
 }
 UINT32 EFIAPI MmioRead32(UINTN a) {
+    if(a==0x078DB1A8u)return 2;
     if(a>=J250F_HC_PHYS && a<J250F_HC_PHYS+J250F_HC_SIZE)
         return read32(&hw,J250F_REGION_HC,(uint32_t)(a-J250F_HC_PHYS));
     if(a>=J250F_CORE_PHYS && a<J250F_CORE_PHYS+J250F_CORE_SIZE)
@@ -106,15 +117,15 @@ static void init_firmware(void) {
 int main(void) {
  UINT8 data[1024];
  init_firmware();
- ASSERT(J250fLkEmmcEntry(NULL,NULL)==EFI_NOT_FOUND && !publish_count);
- ASSERT(held_us==90000000 && hw.cmd_count[0]==0);
+ ASSERT(J250fLkEmmcEntry(NULL,NULL)==EFI_SUCCESS && !publish_count);
+ ASSERT(held_us==100501000 && usb_stops==1 && hw.cmd_count[0]==0);
  init_firmware();provider_available=1;force_power_failure=1;
- ASSERT(J250fLkEmmcEntry(NULL,NULL)==EFI_DEVICE_ERROR && !publish_count);
+ ASSERT(J250fLkEmmcEntry(NULL,NULL)==EFI_SUCCESS && !publish_count);
  ASSERT(hw.cmd_count[0]==0);
  init_firmware();provider_available=1;
  ASSERT(J250fLkEmmcEntry(NULL,NULL)==EFI_SUCCESS && publish_count==1 && mPublished);
  ASSERT(hw.cmd_count[17]==1 && hw.cmd_count[6]==0 && hw.cmd_count[24]==0);
- ASSERT(held_us==90000000 && mHost.frequency_hz==400000 && !mHost.bus_8bit);
+ ASSERT(held_us==100501000 && usb_stops==1 && mHost.frequency_hz==400000 && !mHost.bus_8bit);
  ASSERT(mDisk.Media.ReadOnly && mDisk.Media.LastBlock==31);
  ASSERT(mDisk.Io.ReadBlocks(&mDisk.Io,99,0,512,data)==EFI_MEDIA_CHANGED);
  ASSERT(mDisk.Io.ReadBlocks(&mDisk.Io,1,0,511,data)==EFI_BAD_BUFFER_SIZE);
@@ -124,8 +135,30 @@ int main(void) {
  ASSERT(mDisk.Io.WriteBlocks(&mDisk.Io,1,0,512,data)==EFI_WRITE_PROTECTED);
  ASSERT(mDisk.Io.Reset(&mDisk.Io,TRUE)==EFI_SUCCESS);
  init_firmware();provider_available=1;hw.suppress_command=17;
- ASSERT(J250fLkEmmcEntry(NULL,NULL)==EFI_TIMEOUT && !publish_count && !mPublished);
+ ASSERT(J250fLkEmmcEntry(NULL,NULL)==EFI_SUCCESS && !publish_count && !mPublished);
  ASSERT(hw.cmd_count[17]==1);
- puts("PASS: Mu-header integration simulation, backend+frontend, provider errors, LBA0 required before publication, read-only IO, 400kHz, 90s hold, failed read blocks publication");
+ init_firmware();provider_available=1;
+ ASSERT(J250fLkBoardOpen(&(J250F_LK_DISK){0})==EFI_SUCCESS);
+ mHost.card_ready=0;mProbeCount=0;
+ ASSERT(J250fEmmcSetClock(144000)==EFI_SUCCESS);
+ ASSERT((bh.gcc[0x42008/4]&31)==31 && bh.gcc[0x4200c/4]==3);
+ ASSERT(J250fEmmcTry(TRUE)==EFI_SUCCESS && mHost.cid_valid && !mHost.card_ready);
+ ASSERT(mProbeCount==1);
+ {CHAR8 Out[4096];UINTN Len;UINT32 Clock=MmioRead16(J250F_HC_PHYS+0x2c);
+  ASSERT(J250fEmmcDebugCommand("emmc config set hc2 7 1",Out,sizeof(Out),&Len));
+  ASSERT((MmioRead16(J250F_HC_PHYS+0x3e)&7)==1);
+  ASSERT(MmioRead16(J250F_HC_PHYS+0x2c)==Clock);
+  ASSERT(J250fEmmcTry(TRUE)==EFI_SUCCESS);
+  ASSERT(mHost.trace[(mHost.trace_sequence-1)%J250F_TRACE_DEPTH].hc2%8==1);
+  ASSERT(J250fEmmcDebugCommand("emmc config reset",Out,sizeof(Out),&Len));
+  ASSERT((MmioRead16(J250F_HC_PHYS+0x3e)&7)==0);
+  ASSERT(J250fEmmcDebugCommand("emmc config set hc2 8 8",Out,sizeof(Out),&Len));
+  ASSERT(mProfiles[2].Mask==0);
+ }
+ mProbeCount=32;
+ {unsigned Count=hw.cmd_count[0];
+  ASSERT(J250fEmmcTry(TRUE)==EFI_ACCESS_DENIED && hw.cmd_count[0]==Count);
+ }
+ puts("PASS: Mu-header integration simulation, backend+frontend, provider errors, LBA0 required before publication, read-only IO, 400kHz, persistent session beyond 90s and explicit exit, failed read blocks publication");
  return 0;
 }

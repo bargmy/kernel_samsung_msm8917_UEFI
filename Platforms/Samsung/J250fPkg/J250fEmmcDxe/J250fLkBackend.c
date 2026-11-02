@@ -19,11 +19,13 @@
 #include <Library/PrintLib.h>
 #include <Library/FrameBufferSerialPortLib.h>
 #include "J250fLkPlatform.h"
+#include "J250fEmmcDebug.h"
 #include "j250f_emmc.h"
 #include "j250f_board.h"
 #include "J250fPowerProtocol.h"
 
 STATIC j250f_emmc mHost;
+STATIC UINT32 mProbeCount;
 STATIC j250f_board mBoard;
 STATIC J250F_EMMC_POWER_PROTOCOL *mPower;
 
@@ -152,7 +154,10 @@ EFI_STATUS EFIAPI J250fLkBoardOpen(OUT J250F_LK_DISK *Disk) {
       MmioRead32((UINTN)J250F_TLMM_PHYS+0x10A000u));
     SerialPortWrite((UINT8*)Text,Len);
   }
-  if (Result==J250F_OK) Result=j250f_init_card(&mHost);
+  if (Result==J250F_OK) {
+    J250fEmmcDebugAttach(&mHost);
+    Result=j250f_init_card(&mHost);
+  }
   if (Result!=J250F_OK) {
     CHAR8 Text[384];
     UINTN Len;
@@ -197,7 +202,7 @@ EFI_STATUS EFIAPI J250fUsbDiagCommand(UINT16 Request,UINT16 Value,
   UINT32 *V=(UINT32*)Output;
   UINT32 Hz=0;
   int Result=J250F_E_NOT_READY;
-  STATIC UINT32 ProbeCount=0;
+
   (VOID)Index;
   if(Output==NULL||Length==NULL)return EFI_INVALID_PARAMETER;
   if(Request==0x70){
@@ -210,12 +215,12 @@ EFI_STATUS EFIAPI J250fUsbDiagCommand(UINT16 Request,UINT16 Value,
   if(Request==0x72){
     if(Value==1)Hz=400000u;
     else return EFI_INVALID_PARAMETER;
-    if(!mHost.host_ready||mHost.card_ready||ProbeCount>=32u)return EFI_ACCESS_DENIED;
-    ProbeCount++;
-    j250f_allow_writes(&mHost,0);
-    Result=j250f_set_frequency(&mHost,Hz);
-    if(Result==J250F_OK)Result=j250f_init_card(&mHost);
-    j250f_allow_writes(&mHost,0);
+    if (EFI_ERROR(J250fEmmcSetClock(Hz))) return EFI_NOT_READY;
+    Result=(int)J250F_E_IO;
+    { EFI_STATUS S=J250fEmmcTry(FALSE);
+      if(S==EFI_ACCESS_DENIED)return S;
+      Result=!EFI_ERROR(S)?J250F_OK:(S==EFI_TIMEOUT?J250F_E_TIMEOUT:J250F_E_IO);
+    }
   }
   V[0]=0x4742444au;
   V[1]=1u;
@@ -235,4 +240,25 @@ EFI_STATUS EFIAPI J250fUsbDiagCommand(UINT16 Request,UINT16 Value,
   V[15]=MmioRead32((UINTN)J250F_HC_PHYS+0x10cu);
   *Length=64;
   return EFI_SUCCESS;
+}
+
+EFI_STATUS J250fEmmcGetCid(UINT32 *Cid){
+  if(!mHost.cid_valid)return EFI_NOT_READY;
+  CopyMem(Cid,mHost.cid,sizeof(mHost.cid));return EFI_SUCCESS;
+}
+UINT32 J250fEmmcAttempts(VOID){return mProbeCount;}
+EFI_STATUS J250fEmmcSetClock(UINT32 Hz){
+  if(Hz!=144000u&&Hz!=400000u)return EFI_INVALID_PARAMETER;
+  if(!mHost.host_ready||mHost.card_ready||
+     (MmioRead32(J250F_HC_PHYS+0x24u)&3u))return EFI_NOT_READY;
+  return j250f_set_frequency(&mHost,Hz)==J250F_OK?EFI_SUCCESS:EFI_DEVICE_ERROR;
+}
+EFI_STATUS J250fEmmcTry(BOOLEAN IdentifyOnly){
+  int R;
+  if(!mHost.host_ready||mHost.card_ready||mProbeCount>=32u)return EFI_ACCESS_DENIED;
+  mProbeCount++;
+  j250f_allow_writes(&mHost,0);
+  R=IdentifyOnly?j250f_identify_card(&mHost):j250f_init_card(&mHost);
+  j250f_allow_writes(&mHost,0);
+  return R==J250F_OK?EFI_SUCCESS:(R==J250F_E_TIMEOUT?EFI_TIMEOUT:EFI_DEVICE_ERROR);
 }

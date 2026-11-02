@@ -1,3 +1,9 @@
+# Current experimental branch: persistent firmware ADB
+
+Use [AdbDebug/README.md](AdbDebug/README.md) for the current USB interface,
+commands, upload/EFI execution flow and limits. The older 90-second/EP0 notes
+below describe the preceding storage checkpoints.
+
 # J250F Project Mu eMMC integration
 
 Active components in the J250F platform DSC/FDF:

@@ -32,7 +32,7 @@ int j250f_gcc_sdcc1_clock(j250f_board *b,uint32_t hz) {
     uint32_t cfg,m=1,n,d;
     uint32_t v;
     if (!valid(b))return -1;
-    if (hz!=0 && hz!=400000u && hz!=20000000u && hz!=25000000u)
+    if (hz!=0 && hz!=144000u && hz!=400000u && hz!=20000000u && hz!=25000000u)
         return -1;
     if (!hz) {
         v=rd(b,J250F_GCC_PHYS,GCC_APPS);
@@ -40,7 +40,7 @@ int j250f_gcc_sdcc1_clock(j250f_board *b,uint32_t hz) {
         b->barrier(b->ctx);
         return 0;
     }
-    if (hz!=400000u) {
+    if (hz>400000u) {
         if(!b->gpll0_power_ready || b->gpll0_power_ready(b->ctx))return -1;
         v=rd(b,J250F_GCC_PHYS,GCC_PLL_VOTE);
         wr(b,J250F_GCC_PHYS,GCC_PLL_VOTE,v|1u);
@@ -52,7 +52,10 @@ int j250f_gcc_sdcc1_clock(j250f_board *b,uint32_t hz) {
             b->delay_us(b->ctx,1);
         }
     }
-    if (hz==400000u) {
+    if (hz==144000u) {
+        /* Samsung ftbl_gcc_sdcc1_apps_clk: F(144000,xo,16,3,25). */
+        cfg=31u;m=3u;n=~(25u-3u);d=~25u;
+    } else if (hz==400000u) {
         cfg=23u; /* XO 19.2MHz / 12 * 1/4 = 400kHz */
         n=~(4u-1u);d=~4u;
     } else if (hz==20000000u) {

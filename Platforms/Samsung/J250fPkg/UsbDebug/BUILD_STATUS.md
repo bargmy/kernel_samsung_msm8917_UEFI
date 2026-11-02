@@ -1,3 +1,5 @@
+Historical EP0 checkpoint. See [current ADB build](../AdbDebug/BUILD_STATUS.md).
+
 # Experimental USB build
 
 ARM32 DEBUG Project Mu build passed on 2026-11-02. Android packaging was
