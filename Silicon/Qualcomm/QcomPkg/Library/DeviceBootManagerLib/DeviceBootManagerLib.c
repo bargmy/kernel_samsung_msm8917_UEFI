@@ -758,11 +758,15 @@ DeviceBootManagerBeforeConsole (
   UINT16      BootChoice = 0;
   UINT8       BootHeader[8];
   UINTN       Size;
+  UINTN       OrderSize;
+  UINT16      OnlyBootOption = 0xff10;
+  EFI_STATUS  RestoreStatus;
 
   MarkerStatus = gBS->LocateProtocol(&EspReadyGuid, NULL, &ReadyMarker);
   Size = sizeof(BootChoice);
   ChoiceStatus = gRT->GetVariable(L"BootOrder", &gEfiGlobalVariableGuid,
                                   NULL, &Size, &BootChoice);
+  OrderSize = Size;
   Size = sizeof(BootHeader);
   EntryStatus = gRT->GetVariable(L"BootFF10", &gEfiGlobalVariableGuid,
                                  NULL, &Size, BootHeader);
@@ -773,8 +777,19 @@ DeviceBootManagerBeforeConsole (
     (UINT32)Size));
 
   if (!EFI_ERROR(MarkerStatus) && ReadyMarker != NULL) {
-    /* Keep BDS from selecting Qualcomm's generic internal-storage
-       MsBootPolicy.efi. Only our virtual ESP boot path is eligible. */
+    /* This is the sole intended BDS path. Repair BootOrder if earlier
+       BDS callbacks or stale emulated variables have replaced it. This
+       touches only UEFI boot variables (RAM-backed on J250F), never eMMC. */
+    if (EFI_ERROR(ChoiceStatus) || OrderSize != sizeof(OnlyBootOption) ||
+        BootChoice != OnlyBootOption) {
+      RestoreStatus = gRT->SetVariable(L"BootOrder", &gEfiGlobalVariableGuid,
+                         EFI_VARIABLE_NON_VOLATILE |
+                         EFI_VARIABLE_BOOTSERVICE_ACCESS |
+                         EFI_VARIABLE_RUNTIME_ACCESS,
+                         sizeof(OnlyBootOption), &OnlyBootOption);
+      DEBUG ((DEBUG_ERROR,
+        "[Bds] WP81 BootOrder repair FF10: %r\n", RestoreStatus));
+    }
     DEBUG ((DEBUG_ERROR,
       "[Bds] WP81 ESP-only active: SKIP generic Internal Storage and USB boot options.\n"));
   } else {
