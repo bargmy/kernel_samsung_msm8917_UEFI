@@ -12,6 +12,8 @@
 #include <Library/PrintLib.h>
 #include <Library/SerialPortLib.h>
 #include <Library/FrameBufferSerialPortLib.h>
+#include <Protocol/GraphicsOutput.h>
+#include <J250fGopSupportLib.h>
 #include "J250fLkPlatform.h"
 #include "J250fPowerProtocol.h"
 #include <Library/IoLib.h>
@@ -180,6 +182,34 @@ EFI_STATUS EFIAPI J250fLkEmmcEntry(
 #if defined(J250F_ADB_RAM_EXECUTION)
   FbConStartScreen();
 #endif
+
+  /* Recovery for firmware where the early GOP DXE was not dispatched or its
+     protocol disappeared. ADB diagnostics proved zero GOP handles even while
+     Block I/O was running. Install the same GOP implementation here, BEFORE
+     entering the persistent USB session, so graphics can be tested in ADB.
+     This is protocol-only; no eMMC media or partitions are written. */
+  {
+    EFI_GRAPHICS_OUTPUT_PROTOCOL *Gop = NULL;
+    EFI_STATUS GopStatus = gBS->LocateProtocol(
+      &gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop);
+    BOOLEAN FallbackAttempted = FALSE;
+    if (EFI_ERROR(GopStatus) || Gop == NULL) {
+      FallbackAttempted = TRUE;
+      GopStatus = J250fGopEntry(ImageHandle, SystemTable);
+    }
+    if (!EFI_ERROR(GopStatus)) {
+      Gop = NULL;
+      GopStatus = gBS->LocateProtocol(
+        &gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop);
+      if (!EFI_ERROR(GopStatus) && Gop == NULL)
+        GopStatus = EFI_NOT_FOUND;
+    }
+    Len = AsciiSPrint(Text, sizeof(Text),
+      "J250F GOP: %a, protocol=%r, pointer=%p\r\n",
+      FallbackAttempted ? "fallback attempted" : "already installed",
+      GopStatus, Gop);
+    SerialPortWrite((UINT8 *)Text, Len);
+  }
   Len=AsciiSPrint(Text,sizeof(Text),"J250F: initializing eMMC (one-bit, 400kHz)...\r\n");
   SerialPortWrite((UINT8*)Text,Len);
   {
