@@ -32,6 +32,9 @@
 
 [LibraryClasses]
   DebugLib
+  PrintLib
+  SerialPortLib
+  UefiLib
   HobLib
   MemoryAllocationLib
   BaseMemoryLib
