@@ -167,3 +167,43 @@ any physical eMMC write protection.
 
 A successful read-only load retry does **not** establish that it would be
 safe to run Windows or that the first-stage denial is resolved.
+
+## Experimental exact-donor BOOTMGFW.EFI trust exception
+
+**SECURITY TRADEOFF — this revision relaxes UEFI image authentication for
+one exact binary**. The phone's previous hardware result was:
+`BootFF10 = EFI_ACCESS_DENIED`, `direct LoadImage-only = EFI_ACCESS_DENIED`,
+`LoadImage hook installed = NO`. An ordinary image-verification handler
+may reject the donor Windows Phone boot manager when the platform firmware
+does not trust its original signing certificate, even after EndOfDxe.
+
+The ESP-only BDS path now explicitly decorates the UEFI Security2
+`FileAuthentication` callback **after** attempting the EndOfDxe event:
+- The original Security2 callback is always called first.
+- On authentication failure, the override may return success **only** when
+  the in-memory verified WP81 ESP-ready protocol exists, the device path
+  includes the virtual-disk vendor GUID and the exact
+  `\\Windows\\BOOT\\EFI\\BOOTMGFW.EFI` file path, the file size is
+  exactly 771152 bytes, and SHA-256 matches:
+  `c4fc8b29d3f4e9fbbff3696c12b6ed15acde219e6b8828fb465ed8318bfa6adf`.
+- The hash was computed from the supplied donor `26.EFIESP.fat` archive.
+  A different image, modified file, or different EFI path **is still denied**.
+- BDS diagnostics display whether the exact-image exception was installed,
+  whether it was actually exercised, and the original Security2 status.
+- The override is intentionally limited to the current boot session. It
+  does not write to Secure Boot variables, GPT, ext4, donor images, or
+  physical eMMC. The normal callback is left intact for other images.
+
+**This is not a Secure Boot-compliant production design.** The exception
+skips rejection of one hash-matched image without proving that it is
+trusted by the platform's configured Secure Boot keys. The proper
+long-term solution is trusted key provisioning or an appropriately signed
+boot manager.
+
+**Storage safety remains limited to UEFI protocols.** The original
+Samsung eMMC is concealed through UEFI and the virtual ESP uses volatile
+RAM COW, but BOOTMGFW.EFI and any subsequent native Windows code could
+access physical Qualcomm eMMC hardware directly through MMIO. Only the
+EFI partition is exposed, not MainOS/Data. This is not a hard guarantee
+that Windows code cannot touch physical storage. Maintain an independent
+recovery path; do not run recovery, reset or formatting utilities.
