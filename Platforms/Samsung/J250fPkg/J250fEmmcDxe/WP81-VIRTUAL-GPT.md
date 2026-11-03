@@ -83,3 +83,19 @@ buffer-sizing bug and did not itself explain the boot failure.
 
 Use a DEBUG build of this exact PR commit to read the framebuffer messages.
 The underlying cause of `EFI_ACCESS_DENIED` is still to be confirmed on hardware.
+
+## BDS EndOfDxe fix for Access Denied
+
+The J250F reported `BootFF10 attempted: YES`, `Policy rejected: NO`,
+then `EFI_ACCESS_DENIED`. In the Project Mu SecurityStubDxe source, the
+`Defer3rdPartyImageLoad` handler explicitly returns `EFI_ACCESS_DENIED`
+when loading a filesystem image **before** the EndOfDxe event. This Qcom
+BDS port did not previously signal EndOfDxe in its platform BDS entry.
+
+When (and only when) the verified in-memory WP81 ESP-ready marker exists,
+`DeviceBootManagerBdsEntry` now signals `gEfiEndOfDxeEventGroupGuid`
+**before** normal boot option dispatch. This is a phase-transition fix,
+not an authentication bypass. Windows Boot Manager is still loaded through
+Project Mu's normal `LoadImage` and signature policy. DEBUG reports the
+EndOfDxe signal in firmware logs. The status of this fix on real hardware
+remains **unverified** until the next test.
