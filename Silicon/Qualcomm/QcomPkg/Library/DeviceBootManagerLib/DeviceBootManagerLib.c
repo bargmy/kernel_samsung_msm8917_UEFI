@@ -69,7 +69,11 @@ STATIC EFI_GUID mWpEspReadyGuid = {
 extern BOOLEAN    gWp81LoadObserved;
 extern BOOLEAN    gWp81LoadPolicyRejected;
 extern EFI_STATUS gWp81LoadStatus;
+extern BOOLEAN    gWp81LoadHookInstalled;
+extern UINTN      gWp81LoadCallCount;
 
+STATIC BOOLEAN mWpDirectLoadProbeAttempted = FALSE;
+STATIC EFI_STATUS mWpDirectLoadProbeResult = EFI_NOT_STARTED;
 STATIC BOOLEAN mWpBootFF10Attempted = FALSE;
 STATIC EFI_STATUS mWpBootFF10Result = EFI_NOT_READY;
 
@@ -942,6 +946,27 @@ DeviceBootManagerProcessBootCompletion (
   if (BootOption != NULL && BootOption->OptionNumber == 0xff10) {
     mWpBootFF10Attempted = TRUE;
     mWpBootFF10Result = BootOption->Status;
+    /*
+     * If the boot option was denied, safely retry LoadImage only (NEVER
+     * StartImage) using the original Boot#### path. This separates a BDS
+     * option/variable failure from an EFI image-loading/security error.
+     * Successful images are immediately unloaded. eMMC backing stays RO.
+     */
+    if (mWpBootFF10Result == EFI_ACCESS_DENIED &&
+        BootOption->FilePath != NULL) {
+      EFI_HANDLE ProbeImage = NULL;
+      mWpDirectLoadProbeAttempted = TRUE;
+      mWpDirectLoadProbeResult = gBS->LoadImage(
+          FALSE, gImageHandle, BootOption->FilePath, NULL, 0, &ProbeImage);
+      if (ProbeImage != NULL &&
+          (!EFI_ERROR(mWpDirectLoadProbeResult) ||
+           mWpDirectLoadProbeResult == EFI_SECURITY_VIOLATION)) {
+        (VOID)gBS->UnloadImage(ProbeImage);
+      }
+      DEBUG ((DEBUG_ERROR,
+        "[WP81 BDS] LoadImage-only follow-up: %r (no StartImage)\n",
+        mWpDirectLoadProbeResult));
+    }
     DEBUG ((DEBUG_ERROR,
       "[WP81 BDS] BootFF10 returned %r (0x%lx); EFI path: \\Windows\\BOOT\\EFI\\BOOTMGFW.EFI\n",
       mWpBootFF10Result, (UINT64)mWpBootFF10Result));
@@ -1043,7 +1068,7 @@ DeviceBootManagerUnableToBoot (
     /* The original BootFF10 result cannot distinguish LoadImage failure
        from a started image returning an error. The linked boot policy's
        LoadImage wrapper records the first-stage result separately. */
-    CHAR8 Buffer[640];
+    CHAR8 Buffer[896];
     CONST CHAR8 *Stage;
     UINTN Length;
     UINT16 Order[64];
@@ -1052,14 +1077,21 @@ DeviceBootManagerUnableToBoot (
     UINT16 OrderFirst = 0xffff;
     EFI_STATUS OrderStatus;
 
-    if (!gWp81LoadObserved) {
-      Stage = "No WP81 LoadImage wrapper trace";
+    if (!gWp81LoadObserved && !mWpDirectLoadProbeAttempted) {
+      Stage = "No image-loading trace";
     } else if (gWp81LoadPolicyRejected) {
       Stage = "Platform device-path policy refused";
-    } else if (EFI_ERROR(gWp81LoadStatus)) {
+    } else if (mWpDirectLoadProbeAttempted &&
+               !EFI_ERROR(mWpDirectLoadProbeResult) &&
+               mWpBootFF10Result == EFI_ACCESS_DENIED) {
+      Stage = "Image loads: BDS option or StartImage denied";
+    } else if (gWp81LoadObserved && EFI_ERROR(gWp81LoadStatus)) {
       Stage = "Underlying UEFI LoadImage refused";
+    } else if (mWpDirectLoadProbeAttempted &&
+               EFI_ERROR(mWpDirectLoadProbeResult)) {
+      Stage = "Direct UEFI image-load probe refused";
     } else {
-      Stage = "LoadImage OK; StartImage or app failed";
+      Stage = "LoadImage succeeded; later stage failed";
     }
 
     OrderStatus = gRT->GetVariable(L"BootOrder", &gEfiGlobalVariableGuid,
@@ -1074,23 +1106,28 @@ DeviceBootManagerUnableToBoot (
 #endif
     Length = AsciiSPrint(Buffer, sizeof(Buffer),
       "\r\nWP81 ESP-ONLY BDS DIAGNOSTICS\r\n"
-      "File: Windows/BOOT/EFI/BOOTMGFW.EFI\r\n"
-      "BootFF10 attempted: %a\r\n"
-      "Final EFI status: %r (0x%lx)\r\n"
-      "LoadImage hook seen: %a\r\n"
-      "Policy rejected: %a\r\n"
-      "LoadImage result: %r\r\n"
+      "BootFF10: %a  Final: %r (0x%lx)\r\n"
+      "Loader: Windows/BOOT/EFI/BOOTMGFW.EFI\r\n"
+      "LoadImage hook installed: %a\r\n"
+      "LoadImage hook calls: %u\r\n"
+      "Hook policy denied: %a\r\n"
+      "Hook LoadImage status: %r\r\n"
+      "Direct load-only test: %r (%a)\r\n"
       "Failure stage: %a\r\n"
-      "BootOrder: %r, entries=%u, first=%04x\r\n"
-      "UEFI eMMC hidden; kernel MMIO NOT isolated.\r\n"
-      "Virtual disk writes blocked.\r\n"
-      "Shutting down in 120 seconds.\r\n",
+      "BootOrder: %r, count=%u, first=%04x\r\n"
+      "Physical eMMC hidden only in UEFI.\r\n"
+      "Virtual ESP writes use RAM COW only.\r\n"
+      "Windows kernel eMMC MMIO NOT isolated.\r\n"
+      "Shutdown in 120 seconds.\r\n",
       mWpBootFF10Attempted ? "YES" : "NO",
       mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED,
       (UINT64)(mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED),
-      gWp81LoadObserved ? "YES" : "NO",
+      gWp81LoadHookInstalled ? "YES" : "NO",
+      (UINT32)gWp81LoadCallCount,
       gWp81LoadPolicyRejected ? "YES" : "NO",
       gWp81LoadObserved ? gWp81LoadStatus : EFI_NOT_STARTED,
+      mWpDirectLoadProbeAttempted ? mWpDirectLoadProbeResult : EFI_NOT_STARTED,
+      mWpDirectLoadProbeAttempted ? "not executed" : "not attempted",
       Stage, OrderStatus, (UINT32)OrderCount, OrderFirst);
     (VOID)SerialPortWrite((UINT8 *)Buffer, Length);
     if (gST != NULL && gST->ConOut != NULL) {
