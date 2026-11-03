@@ -154,8 +154,9 @@ STATIC EFI_STATUS EFIAPI WpExactDonorSecurity2Auth (
   VOID *Ready = NULL;
   Status = mWpOriginalSecurity2Auth(This,File,FileBuffer,FileSize,BootPolicy);
   mWpOriginalSecurityStatus = Status;
-  if (!EFI_ERROR(Status) || (Status != EFI_ACCESS_DENIED &&
-      Status != EFI_SECURITY_VIOLATION))
+  /* Never override EFI_SECURITY_VIOLATION (including revocation failures).
+     This experimental exception addresses ONLY the observed ACCESS_DENIED. */
+  if (Status != EFI_ACCESS_DENIED)
     return Status;
   /* Note the marker exists only after private eMMC backing is staged,
      public physical BlockIo is removed, and virtual GPT is validated. */
