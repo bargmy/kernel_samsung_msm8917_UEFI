@@ -63,7 +63,28 @@ def main():
              *(["-DJ250F_PLATFORM=1"] if enabled else []),
              "tests/j250f_console_path_test.c", "-o", str(output)])
         run([str(output)])
-    run(["git", "-C", "Mu_Basecore", "apply", "--check", "../MuPatches/J250F_ImageEntryTrace.patch"])
+    run(["git", "-c", "core.autocrlf=false", "-C", "Mu_Basecore", "apply",
+         "--ignore-space-change", "--check", "../MuPatches/J250F_ImageEntryTrace.patch"])
+    with tempfile.TemporaryDirectory(prefix="entry-patch-", dir=OUT) as temporary:
+        tree = Path(temporary)
+        name = Path("MdeModulePkg/Core/Dxe/Image/Image.c")
+        source = subprocess.run(["git", "-C", "Mu_Basecore", "show", f"HEAD:{name.as_posix()}"],
+                                cwd=ROOT, capture_output=True, check=True).stdout
+        target = tree / name
+        target.parent.mkdir(parents=True)
+        target.write_bytes(source)
+        run(["git", "init", "-q", str(tree)])
+        patch = str(ROOT / "MuPatches/J250F_ImageEntryTrace.patch")
+        command = ["git", "-c", "core.autocrlf=false", "-C", str(tree), "apply", "--ignore-space-change"]
+        run([*command, patch])
+        changed = target.read_bytes()
+        if changed.count(b"CoreStartImage BRANCH") != 1 or changed.count(b"CoreStartImage RETURN") != 1:
+            raise RuntimeError("entry trace patch did not add the expected markers")
+        run([*command, "--reverse", "--check", patch])
+        run([*command, "--reverse", patch])
+        if target.read_bytes() != source:
+            raise RuntimeError("entry trace patch reverse did not restore the exact pinned bytes")
+    print("Linux-style CRLF source patch apply/reverse: PASS")
     for name in ["J250fWpPrivate.c", "J250fTextLogDxe.c", "J250fLkBackend.c", "J250fLkEmmcDxe.c", "J250fHandoffTrace.c", "Core/j250f_emmc.c"]:
         run([*arm, "-c", str(PKG / "J250fEmmcDxe" / name), "-o", str(OUT / (Path(name).stem + "-arm.o"))])
         print(f"ARM object compilation: {name}: PASS")

@@ -19,16 +19,20 @@ git -C Silicon/Arm/Mu_Tiano submodule update --init
 # Fail on dependency drift instead of silently ignoring a required patch.
 apply_patch_checked() {
   local repo=$1 patch=$2
-  if git -C "$repo" apply --reverse --check "$patch" 2>/dev/null; then
+  shift 2
+  if git -C "$repo" apply "$@" --reverse --check "$patch" 2>/dev/null; then
     return
   fi
-  git -C "$repo" apply --check "$patch"
-  git -C "$repo" apply "$patch"
+  git -C "$repo" apply "$@" --check "$patch"
+  git -C "$repo" apply "$@" "$patch"
 }
 apply_patch_checked Mu_Basecore ../MuPatches/Compile.patch
 apply_patch_checked Mu_Basecore ../MuPatches/GenFw_ARM32.patch
 apply_patch_checked Mu_Basecore ../MuPatches/GraphicsConsole_NarrowScreen.patch
-apply_patch_checked Mu_Basecore ../MuPatches/J250F_ImageEntryTrace.patch
+# The pinned Image.c stores CRLF even in its Git blob. Linux doesn't perform
+# Windows Git's automatic context normalization; ignore EOL whitespace only
+# when matching this patch's context, without relaxing patch content checks.
+apply_patch_checked Mu_Basecore ../MuPatches/J250F_ImageEntryTrace.patch --ignore-space-change
 apply_patch_checked Common/Mu_Tiano_Plus ../../MuPatches/J250F_ADB_RAM_Execution.patch
 
 build_firmware() {
