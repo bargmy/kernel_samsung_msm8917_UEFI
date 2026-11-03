@@ -74,6 +74,8 @@ extern UINTN      gWp81LoadCallCount;
 
 STATIC BOOLEAN mWpDirectLoadProbeAttempted = FALSE;
 STATIC EFI_STATUS mWpDirectLoadProbeResult = EFI_NOT_STARTED;
+STATIC UINTN mWpHookCallsBeforeProbe = 0;
+STATIC EFI_STATUS mWpHookStatusBeforeProbe = EFI_NOT_STARTED;
 STATIC BOOLEAN mWpBootFF10Attempted = FALSE;
 STATIC EFI_STATUS mWpBootFF10Result = EFI_NOT_READY;
 
@@ -946,6 +948,8 @@ DeviceBootManagerProcessBootCompletion (
   if (BootOption != NULL && BootOption->OptionNumber == 0xff10) {
     mWpBootFF10Attempted = TRUE;
     mWpBootFF10Result = BootOption->Status;
+    mWpHookCallsBeforeProbe = gWp81LoadCallCount;
+    mWpHookStatusBeforeProbe = gWp81LoadStatus;
     /*
      * If the boot option was denied, safely retry LoadImage only (NEVER
      * StartImage) using the original Boot#### path. This separates a BDS
@@ -1109,9 +1113,9 @@ DeviceBootManagerUnableToBoot (
       "BootFF10: %a  Final: %r (0x%lx)\r\n"
       "Loader: Windows/BOOT/EFI/BOOTMGFW.EFI\r\n"
       "LoadImage hook installed: %a\r\n"
-      "LoadImage hook calls: %u\r\n"
+      "LoadImage hook calls before probe: %u\r\n"
       "Hook policy denied: %a\r\n"
-      "Hook LoadImage status: %r\r\n"
+      "Original hook status: %r\r\n"
       "Direct load-only test: %r (%a)\r\n"
       "Failure stage: %a\r\n"
       "BootOrder: %r, count=%u, first=%04x\r\n"
@@ -1123,9 +1127,9 @@ DeviceBootManagerUnableToBoot (
       mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED,
       (UINT64)(mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED),
       gWp81LoadHookInstalled ? "YES" : "NO",
-      (UINT32)gWp81LoadCallCount,
+      (UINT32)mWpHookCallsBeforeProbe,
       gWp81LoadPolicyRejected ? "YES" : "NO",
-      gWp81LoadObserved ? gWp81LoadStatus : EFI_NOT_STARTED,
+      mWpHookCallsBeforeProbe > 0 ? mWpHookStatusBeforeProbe : EFI_NOT_STARTED,
       mWpDirectLoadProbeAttempted ? mWpDirectLoadProbeResult : EFI_NOT_STARTED,
       mWpDirectLoadProbeAttempted ? "not executed" : "not attempted",
       Stage, OrderStatus, (UINT32)OrderCount, OrderFirst);
