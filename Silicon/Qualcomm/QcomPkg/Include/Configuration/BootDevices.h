@@ -7,6 +7,7 @@
 
 #include <Library/DevicePathLib.h>
 #include <Library/UefiLib.h>
+#include <Configuration/J250fDisplay.h>
 
 typedef struct {
   VENDOR_DEVICE_PATH       VendorDevicePath;
@@ -73,7 +74,11 @@ EFI_DISPLAY_DEVICE_PATH DisplayDevicePath =
         (UINT8)((sizeof(VENDOR_DEVICE_PATH)) >> 8)
       }
     },
+#ifdef J250F_PLATFORM
+    J250F_DISPLAY_DEVICE_GUID
+#else
     EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID
+#endif
   },
   {
     END_DEVICE_PATH_TYPE,

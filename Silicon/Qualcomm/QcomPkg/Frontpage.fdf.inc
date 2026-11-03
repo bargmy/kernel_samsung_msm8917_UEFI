@@ -1,4 +1,10 @@
+!ifndef USE_MS_GOP_OVERRIDE
   INF MsGraphicsPkg/GopOverrideDxe/GopOverrideDxe.inf
+!else
+!if $(USE_MS_GOP_OVERRIDE) == 1
+  INF MsGraphicsPkg/GopOverrideDxe/GopOverrideDxe.inf
+!endif
+!endif
   INF MsCorePkg/MuCryptoDxe/MuCryptoDxe.inf
   INF DfciPkg/SettingsManager/SettingsManagerDxe.inf
   INF MsGraphicsPkg/MsUiTheme/Dxe/MsUiThemeProtocol.inf

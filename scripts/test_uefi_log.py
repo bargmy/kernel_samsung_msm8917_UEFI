@@ -37,6 +37,7 @@ def main():
         ("writer", ["tests/j250f_log_write_test.c", f"{PKG}/J250fEmmcDxe/Core/j250f_emmc.c"]),
         ("storage", ["tests/j250f_log_storage_test.c"]),
         ("text", ["tests/j250f_text_log_test.c"]),
+        ("handoff", ["tests/j250f_handoff_trace_test.c"]),
     ]:
         output = OUT / (name + ext)
         run([cc, *common, *includes, "-IMu_Basecore/MdePkg/Include/X64", "-DMDEPKG_NDEBUG",
@@ -55,7 +56,15 @@ def main():
             run([str(output)])
     arm = [cc, *common, *includes, "-IMu_Basecore/MdePkg/Include/Arm", "--target=armv7a-none-eabi",
            "-mthumb", "-ffreestanding", "-fshort-wchar", "-DMDEPKG_NDEBUG"]
-    for name in ["J250fWpPrivate.c", "J250fTextLogDxe.c", "J250fLkBackend.c", "J250fLkEmmcDxe.c", "Core/j250f_emmc.c"]:
+    for enabled in [False, True]:
+        output = OUT / ("console-j250f" if enabled else "console-default")
+        output = output.with_suffix(ext)
+        run([cc, *common, *includes, "-IMu_Basecore/MdePkg/Include/X64",
+             *(["-DJ250F_PLATFORM=1"] if enabled else []),
+             "tests/j250f_console_path_test.c", "-o", str(output)])
+        run([str(output)])
+    run(["git", "-C", "Mu_Basecore", "apply", "--check", "../MuPatches/J250F_ImageEntryTrace.patch"])
+    for name in ["J250fWpPrivate.c", "J250fTextLogDxe.c", "J250fLkBackend.c", "J250fLkEmmcDxe.c", "J250fHandoffTrace.c", "Core/j250f_emmc.c"]:
         run([*arm, "-c", str(PKG / "J250fEmmcDxe" / name), "-o", str(OUT / (Path(name).stem + "-arm.o"))])
         print(f"ARM object compilation: {name}: PASS")
     pcd = {"PcdMipiFrameBufferWidth": 540, "PcdMipiFrameBufferHeight": 960,
@@ -66,7 +75,7 @@ def main():
     for dxe in [False, True]:
         run([*arm, "-fsyntax-only", "-Wno-sign-compare", *defines, *(["-DJ250F_TEXT_LOG_DXE=1"] if dxe else []), source])
         print(f"ARM syntax: serial capture ({'DXE' if dxe else 'SEC'}): PASS")
-    print("UEFI log checks passed. Hardware writes, full firmware build and boot remain unverified.")
+    print("Host checks passed. They do not verify a new firmware image or resolve the phone reboot.")
 
 
 if __name__ == "__main__":

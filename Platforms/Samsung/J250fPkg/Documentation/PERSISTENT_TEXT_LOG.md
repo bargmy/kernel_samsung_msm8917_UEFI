@@ -2,16 +2,18 @@
 
 ## Current status
 
-Source integration and host regressions are implemented. ARM object compilation
-of the changed storage/engine/controller units and serial syntax checks pass.
-**No full firmware image build, physical eMMC write test, or phone boot test has
-been completed for this change. Do not call this hardware-validated.**
+Build 65 successfully compiled in GitHub Actions and persisted **100 checksum-valid
+records (11,044 text bytes)** on the phone after preparation. The logger's physical
+write path is now demonstrated; the separate Windows Boot Manager reboot remains
+unresolved. New console/handoff changes have host and ARM validation but still
+require their own CI/hardware test. See [reboot investigation](BOOTMGFW_REBOOT_CHECKPOINT.md).
 
 The connected recovery reported SM-J250G / j2y18lte; its donor images were
 verified under `/data/wp81`, not `/data/media/0/wp81`. The existing firmware
 target is still J250F; this change does not establish variant compatibility.
-No firmware has been flashed, no device reboot/unmount performed, and no donor
-image changed as part of implementation.
+The agent has not flashed or rebooted the phone. The prepared log file was written
+and verified, and userdata was cleanly unmounted with explicit user permission.
+The user booted the DEBUG image. No donor image was modified.
 
 ## What is captured
 
@@ -121,8 +123,9 @@ checks/object compilation. It does not replace a full Mu build, power-loss tests
 or phone validation.
 
 Remaining work: full ARM DEBUG Mu build with the repository's pinned dependencies
-and local Basecore patch, then an explicitly authorized flash/boot test using an
-independent recovery path. This Windows session has clang but no working WSL or
+for new changes, then an explicitly authorized flash/boot test using an independent
+recovery path. The existing GitHub workflow builds both DEBUG and RELEASE; this
+Windows session has clang but no working WSL or
 `make` on PATH. Downloaded Basecore/Arm submodules are pinned to their recorded
 commits; no toolchain packages were installed. Do not flash an unbuilt artifact.
 

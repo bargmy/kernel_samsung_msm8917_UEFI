@@ -28,6 +28,7 @@ apply_patch_checked() {
 apply_patch_checked Mu_Basecore ../MuPatches/Compile.patch
 apply_patch_checked Mu_Basecore ../MuPatches/GenFw_ARM32.patch
 apply_patch_checked Mu_Basecore ../MuPatches/GraphicsConsole_NarrowScreen.patch
+apply_patch_checked Mu_Basecore ../MuPatches/J250F_ImageEntryTrace.patch
 apply_patch_checked Common/Mu_Tiano_Plus ../../MuPatches/J250F_ADB_RAM_Execution.patch
 
 build_firmware() {

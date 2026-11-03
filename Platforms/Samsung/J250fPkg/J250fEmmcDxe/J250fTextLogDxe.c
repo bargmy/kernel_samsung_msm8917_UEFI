@@ -11,6 +11,8 @@
 #include "j250f_log_format.h"
 
 extern EFI_STATUS EFIAPI J250fLogWriteRecord(UINT32 Index, CONST VOID *Data);
+extern EFI_STATUS EFIAPI J250fHandoffTraceInstall(VOID);
+extern VOID EFIAPI J250fHandoffTraceStop(VOID);
 STATIC J250F_TEXT_LOG *mLog;
 STATIC BOOLEAN mFlushing;
 STATIC UINT32 mSector;
@@ -166,6 +168,7 @@ STATIC VOID EFIAPI ExitBoot(EFI_EVENT Event, VOID *Context) {
      ExitBootServices callbacks must not allocate or change the memory map. */
   mLog->Flush = NULL;
   mLog->Stopped = TRUE;
+  J250fHandoffTraceStop();
   for (I = 0; I < mOutputCount; ++I)
     if ((mOutputs[I] == gST->ConOut || mOutputs[I] == gST->StdErr) &&
         mOutputs[I]->OutputString == TeeOutput)
@@ -202,6 +205,9 @@ EFI_STATUS EFIAPI J250fLogInstall(UINT32 First) {
   QueueBytes((UINT8 *)Banner, Length);
   HookConsole();
   mLog->Flush = Flush;
+  Status = J250fHandoffTraceInstall();
+  Length = AsciiSPrint(Banner, sizeof(Banner), "[WP81 HANDOFF] trace installation: %r\r\n", Status);
+  QueueBytes((UINT8 *)Banner, Length);
   Flush();
   return EFI_SUCCESS;
 Fail:

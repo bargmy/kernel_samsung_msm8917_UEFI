@@ -17,6 +17,7 @@
   J250fWpIsolated.c
   J250fWpPrivate.c
   J250fTextLogDxe.c
+  J250fHandoffTrace.c
   J250fGopDiag.c
   J250fDeepDebug.c
   J250fEmmcDebug.c

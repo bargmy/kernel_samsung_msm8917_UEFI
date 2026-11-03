@@ -29,8 +29,13 @@
   USE_DISPLAYDXE                 = 0
   AB_SLOT_SUPPORT                = 0
   USE_UART                       = 0
+  # Mu's compositor consumes/hides the real GOP and assumes a linear 32-bit
+  # framebuffer. This platform still falls back to PixelBltOnly, so keep its
+  # real GOP available for GraphicsConsole rather than publishing a duplicate.
+  USE_MS_GOP_OVERRIDE             = 0
 
 [BuildOptions.common]
+  GCC:*_*_*_CC_FLAGS = -DJ250F_PLATFORM=1
 !if $(TARGET) == DEBUG && $(USE_UART) == 0
   GCC:DEBUG_*_*_CC_FLAGS = -DJ250F_PERSISTENT_TEXT_LOG=1
 !endif

@@ -24,6 +24,7 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/DevicePath.h>
 #include <Protocol/GraphicsOutput.h>
+#include <Configuration/J250fDisplay.h>
 
 #ifndef J250F_GOP_NATIVE_BGRX
 #define J250F_GOP_NATIVE_BGRX 0
@@ -45,8 +46,7 @@ STATIC J250F_GOP_DEVICE_PATH mDevicePath = {
       { (UINT8)sizeof(VENDOR_DEVICE_PATH),
         (UINT8)(sizeof(VENDOR_DEVICE_PATH) >> 8) }
     },
-    { 0x75c8e1a4, 0x5e0b, 0x49b5,
-      { 0xb2, 0x23, 0x6f, 0x2e, 0xda, 0xc3, 0x19, 0x54 } }
+    J250F_DISPLAY_DEVICE_GUID
   },
   {
     END_DEVICE_PATH_TYPE,

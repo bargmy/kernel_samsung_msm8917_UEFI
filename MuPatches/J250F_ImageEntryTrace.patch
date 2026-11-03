@@ -1,0 +1,26 @@
+diff --git a/MdeModulePkg/Core/Dxe/Image/Image.c b/MdeModulePkg/Core/Dxe/Image/Image.c
+--- a/MdeModulePkg/Core/Dxe/Image/Image.c
++++ b/MdeModulePkg/Core/Dxe/Image/Image.c
+@@ -1760,7 +1760,22 @@ CoreStartImage (
+     //
+     // Call the image's entry point
+     //
++#if defined(J250F_PLATFORM)
++    if (Image->ImageContext.ImageType == EFI_IMAGE_SUBSYSTEM_EFI_APPLICATION) {
++      DEBUG ((DEBUG_ERROR,
++        "[WP81 HANDOFF] CoreStartImage BRANCH image=%p base=%p entry=%p\n",
++        ImageHandle, (VOID *)(UINTN)Image->ImageContext.ImageAddress,
++        FUNCTION_ENTRY_POINT (Image->ImageContext.EntryPoint)));
++    }
++#endif
+     Image->Started = TRUE;
+     Image->Status  = Image->EntryPoint (ImageHandle, Image->Info.SystemTable);
++#if defined(J250F_PLATFORM)
++    if (Image->ImageContext.ImageType == EFI_IMAGE_SUBSYSTEM_EFI_APPLICATION) {
++      DEBUG ((DEBUG_ERROR,
++        "[WP81 HANDOFF] CoreStartImage RETURN image=%p status=%r\n",
++        ImageHandle, Image->Status));
++    }
++#endif
+
+     //

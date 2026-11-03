@@ -120,7 +120,9 @@ jobs:
 
           Separate DEBUG and RELEASE images and SHA-256 checksums are attached.
           DEBUG includes diagnostics and permits unsigned RAM EFI loads without a device path.
-          RELEASE retains normal image verification. Both retain read-only eMMC access and CRC checks.
+          RELEASE retains normal image verification and read-only physical eMMC access.
+          DEBUG can append only to a prepared, bounded /wp81/uefi.log; other physical writes remain prohibited.
+          Persistent logging requires a validated preallocated file and cleanly unmounted userdata.
           Successful compilation does not establish physical hardware operation.
           EOF
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
