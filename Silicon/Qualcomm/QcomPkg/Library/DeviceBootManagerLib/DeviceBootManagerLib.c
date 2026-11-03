@@ -16,6 +16,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Guid/DfciPacketHeader.h>
 
 #include <Protocol/GraphicsOutput.h>
+#include <Protocol/Security2.h>
+#include <Library/BaseCryptLib.h>
 #include <Protocol/OnScreenKeyboard.h>
 #include <Protocol/TpmPpProtocol.h>
 
@@ -78,6 +80,118 @@ STATIC UINTN mWpHookCallsBeforeProbe = 0;
 STATIC EFI_STATUS mWpHookStatusBeforeProbe = EFI_NOT_STARTED;
 STATIC BOOLEAN mWpBootFF10Attempted = FALSE;
 STATIC EFI_STATUS mWpBootFF10Result = EFI_NOT_READY;
+
+/* Single-image trust exception for this lab-only ESP boot experiment.
+ * This is a narrowly scoped authentication override. It is NOT a Secure Boot
+ * enforcement model and is not safe to reuse for general device booting.
+ * The only permitted image is the exact 771152-byte BLU donor BOOTMGFW.EFI
+ * (SHA-256 below) on this driver-created virtual ESP. All other calls are
+ * passed unchanged to the firmware's original Security2 handler.
+ */
+STATIC EFI_GUID mWpVirtualDiskPathGuid = {
+  0xe7b5ba2a,0xd586,0x4df0,{0x8e,0x28,0x2a,0xd5,0x5d,0x85,0x9c,0x81}
+};
+STATIC CONST UINT8 mWpDonorBootmgrSha256[32] = {
+  0xc4,0xfc,0x8b,0x29,0xd3,0xf4,0xe9,0xfb,
+  0xbf,0xf3,0x69,0x6c,0x12,0xb6,0xed,0x15,
+  0xac,0xde,0x21,0x9e,0x6b,0x88,0x28,0xfb,
+  0x46,0x5e,0xd8,0x31,0x8b,0xfa,0x6a,0xdf
+};
+STATIC EFI_SECURITY2_FILE_AUTHENTICATION mWpOriginalSecurity2Auth;
+STATIC BOOLEAN mWpSecurity2HookInstalled = FALSE;
+STATIC BOOLEAN mWpDonorTrustApplied = FALSE;
+STATIC EFI_STATUS mWpOriginalSecurityStatus = EFI_NOT_STARTED;
+
+STATIC BOOLEAN WpHasExactVirtualBootmgrPath (
+  CONST EFI_DEVICE_PATH_PROTOCOL *Path
+  )
+{
+  CONST EFI_DEVICE_PATH_PROTOCOL *Node;
+  BOOLEAN Vendor = FALSE;
+  BOOLEAN ExactFile = FALSE;
+  UINTN Limit = 2048;
+  if (Path == NULL) return FALSE;
+  Node = Path;
+  while (Limit-- && !IsDevicePathEnd(Node)) {
+    UINTN Size = DevicePathNodeLength(Node);
+    if (Size < sizeof(EFI_DEVICE_PATH_PROTOCOL) || Size > MAX_UINT16)
+      return FALSE;
+    if (DevicePathType(Node) == HARDWARE_DEVICE_PATH &&
+        DevicePathSubType(Node) == HW_VENDOR_DP &&
+        Size == sizeof(VENDOR_DEVICE_PATH) &&
+        CompareGuid(&((CONST VENDOR_DEVICE_PATH *)Node)->Guid,
+                    &mWpVirtualDiskPathGuid)) {
+      Vendor = TRUE;
+    }
+    if (DevicePathType(Node) == MEDIA_DEVICE_PATH &&
+        DevicePathSubType(Node) == MEDIA_FILEPATH_DP &&
+        Size >= sizeof(FILEPATH_DEVICE_PATH)) {
+      CONST FILEPATH_DEVICE_PATH *Fp = (CONST FILEPATH_DEVICE_PATH *)Node;
+      /* Bound string compare to node length; never read untrusted
+         device-path bytes past the current node. */
+      UINTN Chars = (Size - OFFSET_OF(FILEPATH_DEVICE_PATH, PathName)) /
+                    sizeof(CHAR16);
+      STATIC CONST CHAR16 Expected[] = L"\\Windows\\BOOT\\EFI\\BOOTMGFW.EFI";
+      if (Chars >= sizeof(Expected)/sizeof(CHAR16) &&
+          CompareMem(Fp->PathName,Expected,sizeof(Expected)) == 0)
+        ExactFile = TRUE;
+    }
+    Node = NextDevicePathNode(Node);
+  }
+  return Vendor && ExactFile && Limit > 0;
+}
+
+STATIC EFI_STATUS EFIAPI WpExactDonorSecurity2Auth (
+  IN CONST EFI_SECURITY2_ARCH_PROTOCOL *This,
+  IN CONST EFI_DEVICE_PATH_PROTOCOL    *File OPTIONAL,
+  IN VOID                              *FileBuffer,
+  IN UINTN                             FileSize,
+  IN BOOLEAN                           BootPolicy
+  )
+{
+  EFI_STATUS Status;
+  UINT8 Digest[32];
+  VOID *Ready = NULL;
+  Status = mWpOriginalSecurity2Auth(This,File,FileBuffer,FileSize,BootPolicy);
+  mWpOriginalSecurityStatus = Status;
+  if (!EFI_ERROR(Status) || (Status != EFI_ACCESS_DENIED &&
+      Status != EFI_SECURITY_VIOLATION))
+    return Status;
+  /* Note the marker exists only after private eMMC backing is staged,
+     public physical BlockIo is removed, and virtual GPT is validated. */
+  if (FileBuffer == NULL || FileSize != 771152 ||
+      EFI_ERROR(gBS->LocateProtocol(&mWpEspReadyGuid,NULL,&Ready)) ||
+      Ready == NULL || !WpHasExactVirtualBootmgrPath(File) ||
+      !Sha256HashAll(FileBuffer,FileSize,Digest) ||
+      CompareMem(Digest,mWpDonorBootmgrSha256,sizeof(Digest)) != 0)
+    return Status;
+  /* A deliberate exception for this exact donor image only. No other EFI
+     binary, no physical disk, and no image with a different hash is allowed.
+     This skips the original handler's denial for exactly this one image. */
+  mWpDonorTrustApplied = TRUE;
+  DEBUG ((DEBUG_ERROR,
+    "[WP81] ACCEPT exact donor BOOTMGFW.EFI sha256, original Security2=%r; "
+    "experimental image-specific trust override.\n", Status));
+  return EFI_SUCCESS;
+}
+STATIC EFI_STATUS WpInstallDonorTrust (VOID)
+{
+  EFI_SECURITY2_ARCH_PROTOCOL *Sec2 = NULL;
+  EFI_STATUS Status;
+  if (mWpSecurity2HookInstalled) return EFI_SUCCESS;
+  Status = gBS->LocateProtocol(&gEfiSecurity2ArchProtocolGuid,NULL,
+                                (VOID **)&Sec2);
+  if (EFI_ERROR(Status)) return Status;
+  if (Sec2 == NULL || Sec2->FileAuthentication == NULL)
+    return EFI_NOT_READY;
+  mWpOriginalSecurity2Auth = Sec2->FileAuthentication;
+  Sec2->FileAuthentication = WpExactDonorSecurity2Auth;
+  mWpSecurity2HookInstalled = TRUE;
+  DEBUG ((DEBUG_ERROR,
+    "[WP81] Installed exact-hash trust exception for virtual ESP BOOTMGFW.EFI.\n"));
+  return EFI_SUCCESS;
+}
+
 
 
 CHAR8  mMemoryType[][30] = {
@@ -875,7 +989,11 @@ DeviceBootManagerAfterConsole (
     if (!EFI_ERROR(ReadyStatus) && EspReady != NULL) {
       DEBUG ((DEBUG_ERROR,
         "[WP81 BDS] EndOfDxe AFTER BootOptionSupport initialization.\n"));
-      EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
+      EFI_STATUS EventStatus = EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
+      EFI_STATUS TrustStatus = WpInstallDonorTrust();
+      DEBUG ((DEBUG_ERROR,
+        "[WP81] EndOfDxe signal %r, exact-donor trust hook %r.\n",
+        EventStatus, TrustStatus));
     }
   }
 
@@ -1115,6 +1233,9 @@ DeviceBootManagerUnableToBoot (
       "LoadImage hook installed: %a\r\n"
       "LoadImage hook calls before probe: %u\r\n"
       "Hook policy denied: %a\r\n"
+      "Exact donor trust installed: %a\r\n"
+      "Exact donor trust used: %a\r\n"
+      "Original Security2 status: %r\r\n"
       "Original hook status: %r\r\n"
       "Direct load-only test: %r (%a)\r\n"
       "Failure stage: %a\r\n"
@@ -1129,6 +1250,9 @@ DeviceBootManagerUnableToBoot (
       gWp81LoadHookInstalled ? "YES" : "NO",
       (UINT32)mWpHookCallsBeforeProbe,
       gWp81LoadPolicyRejected ? "YES" : "NO",
+      mWpSecurity2HookInstalled ? "YES" : "NO",
+      mWpDonorTrustApplied ? "YES" : "NO",
+      mWpOriginalSecurityStatus,
       mWpHookCallsBeforeProbe > 0 ? mWpHookStatusBeforeProbe : EFI_NOT_STARTED,
       mWpDirectLoadProbeAttempted ? mWpDirectLoadProbeResult : EFI_NOT_STARTED,
       mWpDirectLoadProbeAttempted ? "not executed" : "not attempted",
