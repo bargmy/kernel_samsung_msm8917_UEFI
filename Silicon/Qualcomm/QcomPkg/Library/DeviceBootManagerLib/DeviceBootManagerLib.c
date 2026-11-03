@@ -732,26 +732,11 @@ DeviceBootManagerBdsEntry (
   VOID
   )
 {
-  /*
-   * The J250F WP81 loader runs Project Mu's regular BDS after DXE. The
-   * SecurityStubDxe Defer3rdPartyImageLoad handler must see EndOfDxe
-   * BEFORE any filesystem-based Boot#### image is loaded. Without it,
-   * security policy returns EFI_ACCESS_DENIED even for a valid signed
-   * ARM32 Bootmgfw.efi (this is not a signature-authentication bypass).
-   *
-   * Only the verified ESP-only boot mode triggers this platform-specific
-   * transition; no change to regular QcomPkg boot mode or physical disks.
-   */
-  {
-    VOID *EspReady = NULL;
-    EFI_STATUS ReadyStatus = gBS->LocateProtocol(
-                               &mWpEspReadyGuid, NULL, &EspReady);
-    if (!EFI_ERROR(ReadyStatus) && EspReady != NULL) {
-      DEBUG ((DEBUG_ERROR,
-        "[WP81 BDS] Signaling EndOfDxe before filesystem EFI image load.\n"));
-      EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
-    }
-  }
+  /* Do not signal EndOfDxe here. BdsEntry.c must initialize volatile
+     BootOptionSupport first, otherwise VariablePolicy returns
+     EFI_WRITE_PROTECTED and its line 798 asserts. The WP81-only
+     EndOfDxe transition is performed in AfterConsole, prior to loading
+     BootFF10 and after BDS boot variables are initialized. */
 
   EfiEventGroupSignal (&gMsStartOfBdsNotifyGuid);
 
@@ -869,6 +854,22 @@ DeviceBootManagerAfterConsole (
     if (!EFI_ERROR (Status) && (TpmPp != NULL)) {
       Status = TpmPp->PromptForConfirmation (TpmPp);
       DEBUG ((DEBUG_ERROR, "%a: Unexpected return from Tpm Physical Presence. Code=%r\n", __FUNCTION__, Status));
+    }
+  }
+
+  /* BDS has already initialized BootOptionSupport and other volatile boot
+     variables before entering PlatformBootManagerBefore/AfterConsole.
+     EndOfDxe now safely unlocks filesystem image loading in SecurityStubDxe,
+     without prematurely locking BootOptionSupport. Do not bypass the
+     Security2 image-authentication callbacks. */
+  {
+    VOID *EspReady = NULL;
+    EFI_STATUS ReadyStatus = gBS->LocateProtocol(
+                              &mWpEspReadyGuid, NULL, &EspReady);
+    if (!EFI_ERROR(ReadyStatus) && EspReady != NULL) {
+      DEBUG ((DEBUG_ERROR,
+        "[WP81 BDS] EndOfDxe AFTER BootOptionSupport initialization.\n"));
+      EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
     }
   }
 
