@@ -1,9 +1,13 @@
 # J250F experimental ESP-only normal-BDS boot
 
 **Hardware risk: experimental. UEFI isolation is not Windows kernel isolation.**
-No physical eMMC partitions may be modified. Virtual writes return
-`EFI_WRITE_PROTECTED`. The first test intentionally has **no MainOS or Data
-virtual partitions**; do not infer that Windows kernel boot is impossible.
+No physical Samsung eMMC partitions may be written. The first test exposes
+**only virtual EFIESP**, with **volatile copy-on-write (COW) in UEFI RAM**.
+A virtual write does **not** modify the original EFIESP image inside
+userdata, and does **not** survive poweroff/reboot. It also does not stop
+later Windows kernel drivers from accessing the eMMC controller via MMIO.
+No MainOS or Data partitions are exposed; do not infer a kernel boot is
+impossible.
 
 ## Boot sequence
 
@@ -14,7 +18,10 @@ virtual partitions**; do not infer that Windows kernel boot is impossible.
 4. It disconnects the physical disk's public EFI Block I/O, Disk I/O and
    GPT partition interfaces, failing closed if anything still remains.
 5. It publishes a CRC-checked protective MBR, primary/backup GPT and
-   exactly one read-only FAT16 partition named `EFIESP`.
+   exactly one FAT16 partition named `EFIESP`. Virtual FAT sector writes
+   are saved **only in lazily allocated 4 KiB RAM pages**. MBR, GPT and
+   unused sectors are immutable and return `EFI_WRITE_PROTECTED`.
+   The 32 MiB image itself remains read-only inside userdata.
 6. It confirms the topology and that the virtual FAT ESP contains
    `\\Windows\\BOOT\\EFI\\BOOTMGFW.EFI` (the donor's actual ARM32
    Windows Boot Manager). This skips `BOOTARM.EFI`, which otherwise
@@ -99,3 +106,37 @@ not an authentication bypass. Windows Boot Manager is still loaded through
 Project Mu's normal `LoadImage` and signature policy. DEBUG reports the
 EndOfDxe signal in firmware logs. The status of this fix on real hardware
 remains **unverified** until the next test.
+
+## BDS `Write Protected` assertion, and writable RAM COW
+
+The handset subsequently asserted at `BdsEntry.c(798)` with
+`EFI_WRITE_PROTECTED`. That statement is **not a disk write**: it is the
+result of `SetVariable(BootOptionSupport,...)`. The prior EndOfDxe signal
+was being sent from `DeviceBootManagerBdsEntry`, **before** that volatile
+boot variable was initialized. Now the WP81-specific EndOfDxe signal is
+sent at the end of `DeviceBootManagerAfterConsole`, which runs after BDS
+variable initialization, but still before normal EFI image loading.
+
+The optional RAM COW is a **different change** that makes the *virtual*
+EFIESP appear writable to UEFI without writing anything physical:
+
+- The virtual disk exposes exactly one GPT partition, EFIESP, marked
+  writable to UEFI. There are no MainOS/Data or physical Samsung
+  partitions published on the virtual disk.
+- All writes must fit strictly inside the EFIESP partition range.
+  The virtual protective MBR, GPT headers and entry arrays, and unused
+  disk blocks reject writes with `EFI_WRITE_PROTECTED`.
+- On first write to any 4 KiB EFIESP page, that page is loaded from the
+  existing read-only ext4 image into RAM. Subsequent virtual reads merge
+  RAM modifications over the original image. Multi-block write failures
+  roll back all newly allocated pages before making partial changes.
+- RAM allocations are lazy and can use up to 32 MiB (plus pointer metadata);
+  allocation failure returns `EFI_OUT_OF_RESOURCES`. The data is lost on
+  restart or shutdown. There is **no persistent virtual-write feature**.
+- `J250fWpPrivateRead` is still the only underlying image I/O operation;
+  there is no ext4 write implementation and no physical eMMC write path.
+
+**Limitation:** These are UEFI Block I/O boundaries only. Windows native
+Qualcomm eMMC/MMIO drivers would bypass them, so kernel-level eMMC
+isolation is still absent. Do not interpret the COW change as protecting
+Samsung partitions if the Windows kernel actually starts.
