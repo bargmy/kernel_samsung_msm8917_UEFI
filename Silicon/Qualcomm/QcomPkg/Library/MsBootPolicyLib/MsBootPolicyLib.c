@@ -43,6 +43,11 @@ static EFI_IMAGE_LOAD               gSystemLoadImage;
 BOOLEAN    gWp81LoadObserved = FALSE;
 BOOLEAN    gWp81LoadPolicyRejected = FALSE;
 EFI_STATUS gWp81LoadStatus = EFI_NOT_READY;
+BOOLEAN    gWp81LoadHookInstalled = FALSE;
+UINTN      gWp81LoadCallCount = 0;
+STATIC EFI_GUID mWp81EspReadyGuid = {
+  0xd7f18d20, 0x49b1, 0x4e41, {0x8d,0x1a,0x91,0x46,0x6c,0x7e,0x37,0xa2}
+};
 
 STATIC EFI_GUID mWp81DiskNodeGuid = {
   0xe7b5ba2a, 0xd586, 0x4df0,
@@ -93,9 +98,19 @@ LocalLoadImage (
   )
 {
   EFI_STATUS Status;
-  BOOLEAN Wp81Trace = IsWp81VirtualPath(DevicePath);
-
+  VOID *EspMarker = NULL;
+  /*
+   * BootFF10's path can be expanded by BmGetNextLoadOptionBuffer(). A
+   * path-prefix comparison alone silently missed the previous error.
+   * Observe ALL image loads while our verified ESP-only marker is active,
+   * independently of how BDS represents the resolved device path.
+   * This is observation only; the same policy and original loader run.
+   */
+  BOOLEAN Wp81Trace = IsWp81VirtualPath(DevicePath) ||
+    (!EFI_ERROR(gBS->LocateProtocol(&mWp81EspReadyGuid,NULL,&EspMarker)) &&
+     EspMarker != NULL);
   if (Wp81Trace) {
+    gWp81LoadCallCount++;
     gWp81LoadObserved = TRUE;
     gWp81LoadPolicyRejected = FALSE;
     gWp81LoadStatus = EFI_NOT_READY;
@@ -151,6 +166,7 @@ MsBootPolicyLibConstructor (
     OldTpl           = gBS->RaiseTPL (TPL_HIGH_LEVEL);
     gSystemLoadImage = gBS->LoadImage;
     gBS->LoadImage   = LocalLoadImage;
+    gWp81LoadHookInstalled = TRUE;
     gBS->Hdr.CRC32   = 0;
     Crc              = 0;
     gBS->CalculateCrc32 ((UINT8 *)&gBS->Hdr, gBS->Hdr.HeaderSize, &Crc);
