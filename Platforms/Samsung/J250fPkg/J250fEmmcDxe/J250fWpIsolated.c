@@ -238,6 +238,33 @@ STATIC EFI_STATUS EFIAPI WpRead (EFI_BLOCK_IO_PROTOCOL *This,
   }
   return EFI_SUCCESS;
 }
+/* Fail-closed preboot test: the virtual ESP must accept writes in RAM
+   while GPT/MBR and out-of-partition sectors reject every write. Restore
+   the original EFIESP last sector before exposing the FAT filesystem. */
+STATIC EFI_STATUS WpCowSelfTest (VOID) {
+  UINT8 Original[WP_SECTOR], Probe[WP_SECTOR], Result[WP_SECTOR];
+  EFI_LBA Sector = mWp.Image[0].First + mWp.Image[0].Sectors - 1;
+  EFI_STATUS Status;
+  UINTN I;
+  Status = WpWrite(&mWp.Io,mWp.Media.MediaId,0,WP_SECTOR,Probe);
+  if (Status != EFI_WRITE_PROTECTED) return EFI_SECURITY_VIOLATION;
+  Status = WpWrite(&mWp.Io,mWp.Media.MediaId,mWp.Last,WP_SECTOR,Probe);
+  if (Status != EFI_WRITE_PROTECTED) return EFI_SECURITY_VIOLATION;
+  Status = WpRead(&mWp.Io,mWp.Media.MediaId,Sector,WP_SECTOR,Original);
+  if (EFI_ERROR(Status)) return Status;
+  for (I=0;I<WP_SECTOR;I++) Probe[I] = Original[I] ^ 0x5a;
+  Status = WpWrite(&mWp.Io,mWp.Media.MediaId,Sector,WP_SECTOR,Probe);
+  if (EFI_ERROR(Status)) return Status;
+  Status = WpRead(&mWp.Io,mWp.Media.MediaId,Sector,WP_SECTOR,Result);
+  if (EFI_ERROR(Status)) return Status;
+  if (CompareMem(Probe,Result,WP_SECTOR) != 0) return EFI_VOLUME_CORRUPTED;
+  Status = WpWrite(&mWp.Io,mWp.Media.MediaId,Sector,WP_SECTOR,Original);
+  if (EFI_ERROR(Status)) return Status;
+  Status = WpRead(&mWp.Io,mWp.Media.MediaId,Sector,WP_SECTOR,Result);
+  if (EFI_ERROR(Status)) return Status;
+  return CompareMem(Original,Result,WP_SECTOR) == 0 ?
+         EFI_SUCCESS : EFI_VOLUME_CORRUPTED;
+}
 STATIC EFI_STATUS MakeGpt (VOID) {
   EFI_PARTITION_TABLE_HEADER Header;
   EFI_STATUS Status;
@@ -410,6 +437,12 @@ STATIC EFI_STATUS WpMount (VOID) {
   mWp.Path.End.Length[0]=sizeof(EFI_DEVICE_PATH_PROTOCOL);
   mWp.Path.End.Length[1]=0;
   mWp.Active=TRUE;
+  Status=WpCowSelfTest();
+  if (EFI_ERROR(Status)) {
+    /* Physical UEFI disk is already concealed: stay in diagnostics. */
+    mWp.Active=FALSE;
+    return Status;
+  }
   Status=gBS->InstallMultipleProtocolInterfaces(&mWp.Handle,
            &gEfiBlockIoProtocolGuid,&mWp.Io,
            &gEfiDevicePathProtocolGuid,&mWp.Path,NULL);
