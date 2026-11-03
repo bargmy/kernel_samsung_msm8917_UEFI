@@ -145,3 +145,25 @@ If this test fails, no virtual disk is published and BDS boot is not entered.
 Qualcomm eMMC/MMIO drivers would bypass them, so kernel-level eMMC
 isolation is still absent. Do not interpret the COW change as protecting
 Samsung partitions if the Windows kernel actually starts.
+
+## BootFF10 denied before tracing: source-level diagnostic
+
+Hardware reached normal BDS, but returned `EFI_ACCESS_DENIED` with
+`LoadImage hook seen: NO`. This does **not** prove the EFI image loader was
+never called: the previous trace was restricted to file device paths
+beginning with the vendor node, while BDS can expand or normalize paths.
+
+The updated `MsBootPolicyLib` traces all `LoadImage` calls while the
+verified, in-memory WP81 ESP-ready marker exists. The BDS error screen
+reports whether the hook was installed, the number of calls during the
+original boot attempt, and its original status.
+
+After a denied `BootFF10` attempt, BDS also executes **only**
+`gBS->LoadImage(..., BootOption->FilePath, ...)` and immediately unloads
+the image if loaded. It never calls `StartImage` for this diagnostic
+retry. This distinguishes EFI image-loading denial from an upstream
+BDS boot-option/variable failure, without altering image authentication or
+any physical eMMC write protection.
+
+A successful read-only load retry does **not** establish that it would be
+safe to run Windows or that the first-stage denial is resolved.
