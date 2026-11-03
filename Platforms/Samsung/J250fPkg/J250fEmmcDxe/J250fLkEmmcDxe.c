@@ -25,6 +25,7 @@ extern VOID EFIAPI J250fGopDiagRecord(
 #include "J250fAdbShell.h"
 extern EFI_STATUS EFIAPI J250fUsbDiagCommand(UINT16,UINT16,UINT16,VOID*,UINTN*);
 extern VOID EFIAPI J250fWpInit(EFI_HANDLE Parent);
+extern EFI_STATUS EFIAPI J250fWpPrepareBds(VOID);
 
 typedef struct {
   VENDOR_DEVICE_PATH Vendor;
@@ -240,6 +241,21 @@ EFI_STATUS EFIAPI J250fLkEmmcEntry(
     Len = AsciiSPrint(Text, sizeof(Text),
       "Read-only partition/filesystem connection: %r\r\n", Connect);
     SerialPortWrite((UINT8 *)Text, Len);
+  }
+  /* The normal boot path: stage only EFIESP, conceal public physical eMMC,
+     create BootFF10, then RETURN from this DXE entry. EndOfDxe and BDS must
+     run before Windows Boot Manager is loaded. If staging fails, retain ADB
+     diagnostics and do not enter BDS with the original disk visible. */
+  if (!EFI_ERROR(Status) && mPublished) {
+    EFI_STATUS BootStatus=J250fWpPrepareBds();
+    Len=AsciiSPrint(Text,sizeof(Text),
+      "WP81 EFI-only BDS preparation: %r\r\n",BootStatus);
+    SerialPortWrite((UINT8*)Text,Len);
+    if (!EFI_ERROR(BootStatus)) {
+      J250fUsbGadgetStop();
+      J250fAdbShellFinish();
+      return EFI_SUCCESS;
+    }
   }
   Len=AsciiSPrint(Text,sizeof(Text),
     "eMMC disk initialization: %r\r\nBlock IO published: %a\r\n"

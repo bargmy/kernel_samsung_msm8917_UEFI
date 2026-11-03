@@ -22,6 +22,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  CryptoPkg/CryptoPkg.dec
   MsCorePkg/MsCorePkg.dec
   MsGraphicsPkg/MsGraphicsPkg.dec
   PcBdsPkg/PcBdsPkg.dec
@@ -32,6 +33,10 @@
 
 [LibraryClasses]
   DebugLib
+  BaseCryptLib
+  PrintLib
+  SerialPortLib
+  UefiLib
   HobLib
   MemoryAllocationLib
   BaseMemoryLib
@@ -55,6 +60,7 @@
   UpdateFacsHardwareSignatureLib
 
 [Guids]
+  gEfiEndOfDxeEventGroupGuid
   gUefiShellFileGuid
   gMsStartOfBdsNotifyGuid
   gDfciStartOfBdsNotifyGuid
@@ -69,6 +75,7 @@
   gTpmPpProtocolGuid                ## CONSUMES
   gEdkiiVariablePolicyProtocolGuid  ## CONSUMES
   gEfiGraphicsOutputProtocolGuid    ## CONSUMES
+  gEfiSecurity2ArchProtocolGuid     ## CONSUMES
 
 [Pcd]
   gPcBdsPkgTokenSpaceGuid.PcdPowerAndThermalRetries

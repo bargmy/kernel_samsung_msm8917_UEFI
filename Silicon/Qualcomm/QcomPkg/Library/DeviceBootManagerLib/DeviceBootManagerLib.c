@@ -16,6 +16,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Guid/DfciPacketHeader.h>
 
 #include <Protocol/GraphicsOutput.h>
+#include <Protocol/Security2.h>
+#include <Library/BaseCryptLib.h>
 #include <Protocol/OnScreenKeyboard.h>
 #include <Protocol/TpmPpProtocol.h>
 
@@ -40,6 +42,10 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/MsNetworkDependencyLib.h>
 #include <Library/PcdLib.h>
 #include <Library/PrintLib.h>
+#include <Library/SerialPortLib.h>
+#if defined(J250F_ADB_RAM_EXECUTION)
+#include <Library/FrameBufferSerialPortLib.h>
+#endif
 #include <Library/PowerServicesLib.h>
 #include <Library/ThermalServicesLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -55,6 +61,139 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 static EFI_EVENT  mPreReadyToBootEvent;
 static EFI_EVENT  mPostReadyToBootEvent;
+
+/* J250F one-partition WP81 BDS diagnostic state. No storage writes. */
+STATIC EFI_GUID mWpEspReadyGuid = {
+  0xd7f18d20, 0x49b1, 0x4e41, {0x8d,0x1a,0x91,0x46,0x6c,0x7e,0x37,0xa2}
+};
+/* Instrumentation from MsBootPolicyLib's *existing* LoadImage wrapper.
+   No image authentication/boot policy bypass is performed. */
+extern BOOLEAN    gWp81LoadObserved;
+extern BOOLEAN    gWp81LoadPolicyRejected;
+extern EFI_STATUS gWp81LoadStatus;
+extern BOOLEAN    gWp81LoadHookInstalled;
+extern UINTN      gWp81LoadCallCount;
+
+STATIC BOOLEAN mWpDirectLoadProbeAttempted = FALSE;
+STATIC EFI_STATUS mWpDirectLoadProbeResult = EFI_NOT_STARTED;
+STATIC UINTN mWpHookCallsBeforeProbe = 0;
+STATIC EFI_STATUS mWpHookStatusBeforeProbe = EFI_NOT_STARTED;
+STATIC BOOLEAN mWpBootFF10Attempted = FALSE;
+STATIC EFI_STATUS mWpBootFF10Result = EFI_NOT_READY;
+
+/* Single-image trust exception for this lab-only ESP boot experiment.
+ * This is a narrowly scoped authentication override. It is NOT a Secure Boot
+ * enforcement model and is not safe to reuse for general device booting.
+ * The only permitted image is the exact 771152-byte BLU donor BOOTMGFW.EFI
+ * (SHA-256 below) on this driver-created virtual ESP. All other calls are
+ * passed unchanged to the firmware's original Security2 handler.
+ */
+STATIC EFI_GUID mWpVirtualDiskPathGuid = {
+  0xe7b5ba2a,0xd586,0x4df0,{0x8e,0x28,0x2a,0xd5,0x5d,0x85,0x9c,0x81}
+};
+STATIC CONST UINT8 mWpDonorBootmgrSha256[32] = {
+  0xc4,0xfc,0x8b,0x29,0xd3,0xf4,0xe9,0xfb,
+  0xbf,0xf3,0x69,0x6c,0x12,0xb6,0xed,0x15,
+  0xac,0xde,0x21,0x9e,0x6b,0x88,0x28,0xfb,
+  0x46,0x5e,0xd8,0x31,0x8b,0xfa,0x6a,0xdf
+};
+STATIC EFI_SECURITY2_FILE_AUTHENTICATION mWpOriginalSecurity2Auth;
+STATIC BOOLEAN mWpSecurity2HookInstalled = FALSE;
+STATIC BOOLEAN mWpDonorTrustApplied = FALSE;
+STATIC EFI_STATUS mWpOriginalSecurityStatus = EFI_NOT_STARTED;
+
+STATIC BOOLEAN WpHasExactVirtualBootmgrPath (
+  CONST EFI_DEVICE_PATH_PROTOCOL *Path
+  )
+{
+  CONST EFI_DEVICE_PATH_PROTOCOL *Node;
+  BOOLEAN Vendor = FALSE;
+  BOOLEAN ExactFile = FALSE;
+  UINTN Limit = 2048;
+  if (Path == NULL) return FALSE;
+  Node = Path;
+  while (Limit-- && !IsDevicePathEnd(Node)) {
+    UINTN Size = DevicePathNodeLength(Node);
+    if (Size < sizeof(EFI_DEVICE_PATH_PROTOCOL) || Size > MAX_UINT16)
+      return FALSE;
+    if (DevicePathType(Node) == HARDWARE_DEVICE_PATH &&
+        DevicePathSubType(Node) == HW_VENDOR_DP &&
+        Size == sizeof(VENDOR_DEVICE_PATH) &&
+        CompareGuid(&((CONST VENDOR_DEVICE_PATH *)Node)->Guid,
+                    &mWpVirtualDiskPathGuid)) {
+      Vendor = TRUE;
+    }
+    if (DevicePathType(Node) == MEDIA_DEVICE_PATH &&
+        DevicePathSubType(Node) == MEDIA_FILEPATH_DP &&
+        Size >= sizeof(FILEPATH_DEVICE_PATH)) {
+      CONST FILEPATH_DEVICE_PATH *Fp = (CONST FILEPATH_DEVICE_PATH *)Node;
+      /* Bound string compare to node length; never read untrusted
+         device-path bytes past the current node. */
+      UINTN Chars = (Size - OFFSET_OF(FILEPATH_DEVICE_PATH, PathName)) /
+                    sizeof(CHAR16);
+      STATIC CONST CHAR16 Expected[] = L"\\Windows\\BOOT\\EFI\\BOOTMGFW.EFI";
+      if (Chars >= sizeof(Expected)/sizeof(CHAR16) &&
+          CompareMem(Fp->PathName,Expected,sizeof(Expected)) == 0)
+        ExactFile = TRUE;
+    }
+    Node = NextDevicePathNode(Node);
+  }
+  return Vendor && ExactFile && Limit > 0;
+}
+
+STATIC EFI_STATUS EFIAPI WpExactDonorSecurity2Auth (
+  IN CONST EFI_SECURITY2_ARCH_PROTOCOL *This,
+  IN CONST EFI_DEVICE_PATH_PROTOCOL    *File OPTIONAL,
+  IN VOID                              *FileBuffer,
+  IN UINTN                             FileSize,
+  IN BOOLEAN                           BootPolicy
+  )
+{
+  EFI_STATUS Status;
+  UINT8 Digest[32];
+  VOID *Ready = NULL;
+  Status = mWpOriginalSecurity2Auth(This,File,FileBuffer,FileSize,BootPolicy);
+  mWpOriginalSecurityStatus = Status;
+  /* Never override EFI_SECURITY_VIOLATION (including revocation failures).
+     This experimental exception addresses ONLY the observed ACCESS_DENIED. */
+  if (Status != EFI_ACCESS_DENIED)
+    return Status;
+  /* Note the marker exists only after private eMMC backing is staged,
+     public physical BlockIo is removed, and virtual GPT is validated. */
+  if (FileBuffer == NULL || FileSize != 771152 ||
+      EFI_ERROR(gBS->LocateProtocol(&mWpEspReadyGuid,NULL,&Ready)) ||
+      Ready == NULL || !WpHasExactVirtualBootmgrPath(File) ||
+      !Sha256HashAll(FileBuffer,FileSize,Digest) ||
+      CompareMem(Digest,mWpDonorBootmgrSha256,sizeof(Digest)) != 0)
+    return Status;
+  /* A deliberate exception for this exact donor image only. No other EFI
+     binary, no physical disk, and no image with a different hash is allowed.
+     This skips the original handler's denial for exactly this one image. */
+  mWpDonorTrustApplied = TRUE;
+  DEBUG ((DEBUG_ERROR,
+    "[WP81] ACCEPT exact donor BOOTMGFW.EFI sha256, original Security2=%r; "
+    "experimental image-specific trust override.\n", Status));
+  return EFI_SUCCESS;
+}
+STATIC EFI_STATUS WpInstallDonorTrust (VOID)
+{
+  EFI_SECURITY2_ARCH_PROTOCOL *Sec2 = NULL;
+  EFI_STATUS Status;
+  if (mWpSecurity2HookInstalled) return EFI_SUCCESS;
+  Status = gBS->LocateProtocol(&gEfiSecurity2ArchProtocolGuid,NULL,
+                                (VOID **)&Sec2);
+  if (EFI_ERROR(Status)) return Status;
+  if (Sec2 == NULL || Sec2->FileAuthentication == NULL)
+    return EFI_NOT_READY;
+  mWpOriginalSecurity2Auth = Sec2->FileAuthentication;
+  Sec2->FileAuthentication = WpExactDonorSecurity2Auth;
+  mWpSecurity2HookInstalled = TRUE;
+  DEBUG ((DEBUG_ERROR,
+    "[WP81] Installed exact-hash trust exception for virtual ESP BOOTMGFW.EFI.\n"));
+  return EFI_SUCCESS;
+}
+
+
 
 CHAR8  mMemoryType[][30] = {
   // Value for PcdMemoryMapTypes
@@ -714,6 +853,12 @@ DeviceBootManagerBdsEntry (
   VOID
   )
 {
+  /* Do not signal EndOfDxe here. BdsEntry.c must initialize volatile
+     BootOptionSupport first, otherwise VariablePolicy returns
+     EFI_WRITE_PROTECTED and its line 798 asserts. The WP81-only
+     EndOfDxe transition is performed in AfterConsole, prior to loading
+     BootFF10 and after BDS boot variables are initialized. */
+
   EfiEventGroupSignal (&gMsStartOfBdsNotifyGuid);
 
   //
@@ -742,7 +887,56 @@ DeviceBootManagerBeforeConsole (
   BDS_CONSOLE_CONNECT_ENTRY  **PlatformConsoles
   )
 {
-  MsBootOptionsLibRegisterDefaultBootOptions ();
+  /*
+   * The WP81 ESP-only driver exposes this marker only after the private
+   * userdata backing has been staged, the physical UEFI disk has been
+   * disconnected, and a valid BootFF10 option has been registered.
+   * Do NOT infer the mode from BootOrder: BDS can alter that variable.
+   */
+  VOID        *ReadyMarker = NULL;
+  EFI_STATUS  MarkerStatus;
+  EFI_STATUS  ChoiceStatus;
+  EFI_STATUS  EntryStatus;
+  UINT16      BootChoice = 0;
+  UINT8       BootHeader[8];
+  UINTN       Size;
+  UINTN       OrderSize;
+  UINT16      OnlyBootOption = 0xff10;
+  EFI_STATUS  RestoreStatus;
+
+  MarkerStatus = gBS->LocateProtocol(&mWpEspReadyGuid, NULL, &ReadyMarker);
+  Size = sizeof(BootChoice);
+  ChoiceStatus = gRT->GetVariable(L"BootOrder", &gEfiGlobalVariableGuid,
+                                  NULL, &Size, &BootChoice);
+  OrderSize = Size;
+  Size = sizeof(BootHeader);
+  EntryStatus = gRT->GetVariable(L"BootFF10", &gEfiGlobalVariableGuid,
+                                 NULL, &Size, BootHeader);
+
+  DEBUG ((DEBUG_ERROR,
+    "[Bds] WP81 ESP-ready marker=%r markerPtr=%p, BootOrder=%r first=%04x, BootFF10=%r bytes=%u\n",
+    MarkerStatus, ReadyMarker, ChoiceStatus, BootChoice, EntryStatus,
+    (UINT32)Size));
+
+  if (!EFI_ERROR(MarkerStatus) && ReadyMarker != NULL) {
+    /* This is the sole intended BDS path. Repair BootOrder if earlier
+       BDS callbacks or stale emulated variables have replaced it. This
+       touches only UEFI boot variables (RAM-backed on J250F), never eMMC. */
+    if (EFI_ERROR(ChoiceStatus) || OrderSize != sizeof(OnlyBootOption) ||
+        BootChoice != OnlyBootOption) {
+      RestoreStatus = gRT->SetVariable(L"BootOrder", &gEfiGlobalVariableGuid,
+                         EFI_VARIABLE_NON_VOLATILE |
+                         EFI_VARIABLE_BOOTSERVICE_ACCESS |
+                         EFI_VARIABLE_RUNTIME_ACCESS,
+                         sizeof(OnlyBootOption), &OnlyBootOption);
+      DEBUG ((DEBUG_ERROR,
+        "[Bds] WP81 BootOrder repair FF10: %r\n", RestoreStatus));
+    }
+    DEBUG ((DEBUG_ERROR,
+      "[Bds] WP81 ESP-only active: SKIP generic Internal Storage and USB boot options.\n"));
+  } else {
+    MsBootOptionsLibRegisterDefaultBootOptions ();
+  }
   *PlatformConsoles = GetPlatformConsoleList ();
 
   return GetPlatformPreferredConsole (DevicePath);
@@ -781,6 +975,26 @@ DeviceBootManagerAfterConsole (
     if (!EFI_ERROR (Status) && (TpmPp != NULL)) {
       Status = TpmPp->PromptForConfirmation (TpmPp);
       DEBUG ((DEBUG_ERROR, "%a: Unexpected return from Tpm Physical Presence. Code=%r\n", __FUNCTION__, Status));
+    }
+  }
+
+  /* BDS has already initialized BootOptionSupport and other volatile boot
+     variables before entering PlatformBootManagerBefore/AfterConsole.
+     EndOfDxe now safely unlocks filesystem image loading in SecurityStubDxe,
+     without prematurely locking BootOptionSupport. Do not bypass the
+     Security2 image-authentication callbacks. */
+  {
+    VOID *EspReady = NULL;
+    EFI_STATUS ReadyStatus = gBS->LocateProtocol(
+                              &mWpEspReadyGuid, NULL, &EspReady);
+    if (!EFI_ERROR(ReadyStatus) && EspReady != NULL) {
+      DEBUG ((DEBUG_ERROR,
+        "[WP81 BDS] EndOfDxe AFTER BootOptionSupport initialization.\n"));
+      EFI_STATUS EventStatus = EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
+      EFI_STATUS TrustStatus = WpInstallDonorTrust();
+      DEBUG ((DEBUG_ERROR,
+        "[WP81] EndOfDxe signal %r, exact-donor trust hook %r.\n",
+        EventStatus, TrustStatus));
     }
   }
 
@@ -844,6 +1058,41 @@ DeviceBootManagerProcessBootCompletion (
                     0,
                     NULL
                     );
+  }
+
+
+  /* EfiBootManagerBoot stores the final LoadImage/StartImage result here.
+     Keep it for a readable post-failure screen instead of showing the
+     unhelpful generic "No Operating System Found" image. */
+  if (BootOption != NULL && BootOption->OptionNumber == 0xff10) {
+    mWpBootFF10Attempted = TRUE;
+    mWpBootFF10Result = BootOption->Status;
+    mWpHookCallsBeforeProbe = gWp81LoadCallCount;
+    mWpHookStatusBeforeProbe = gWp81LoadStatus;
+    /*
+     * If the boot option was denied, safely retry LoadImage only (NEVER
+     * StartImage) using the original Boot#### path. This separates a BDS
+     * option/variable failure from an EFI image-loading/security error.
+     * Successful images are immediately unloaded. eMMC backing stays RO.
+     */
+    if (mWpBootFF10Result == EFI_ACCESS_DENIED &&
+        BootOption->FilePath != NULL) {
+      EFI_HANDLE ProbeImage = NULL;
+      mWpDirectLoadProbeAttempted = TRUE;
+      mWpDirectLoadProbeResult = gBS->LoadImage(
+          FALSE, gImageHandle, BootOption->FilePath, NULL, 0, &ProbeImage);
+      if (ProbeImage != NULL &&
+          (!EFI_ERROR(mWpDirectLoadProbeResult) ||
+           mWpDirectLoadProbeResult == EFI_SECURITY_VIOLATION)) {
+        (VOID)gBS->UnloadImage(ProbeImage);
+      }
+      DEBUG ((DEBUG_ERROR,
+        "[WP81 BDS] LoadImage-only follow-up: %r (no StartImage)\n",
+        mWpDirectLoadProbeResult));
+    }
+    DEBUG ((DEBUG_ERROR,
+      "[WP81 BDS] BootFF10 returned %r (0x%lx); EFI path: \\Windows\\BOOT\\EFI\\BOOTMGFW.EFI\n",
+      mWpBootFF10Result, (UINT64)mWpBootFF10Result));
   }
 
   RestartStatus = BootOption->Status;
@@ -935,6 +1184,91 @@ DeviceBootManagerUnableToBoot (
 {
   EFI_STATUS                    Status;
   EFI_GRAPHICS_OUTPUT_PROTOCOL *GraphicsOutput;
+  VOID                         *WpMarker = NULL;
+
+  Status = gBS->LocateProtocol(&mWpEspReadyGuid, NULL, &WpMarker);
+  if (!EFI_ERROR(Status) && WpMarker != NULL) {
+    /* The original BootFF10 result cannot distinguish LoadImage failure
+       from a started image returning an error. The linked boot policy's
+       LoadImage wrapper records the first-stage result separately. */
+    CHAR8 Buffer[896];
+    CONST CHAR8 *Stage;
+    UINTN Length;
+    UINT16 Order[64];
+    UINTN OrderBytes = sizeof(Order);
+    UINTN OrderCount = 0;
+    UINT16 OrderFirst = 0xffff;
+    EFI_STATUS OrderStatus;
+
+    if (!gWp81LoadObserved && !mWpDirectLoadProbeAttempted) {
+      Stage = "No image-loading trace";
+    } else if (gWp81LoadPolicyRejected) {
+      Stage = "Platform device-path policy refused";
+    } else if (mWpDirectLoadProbeAttempted &&
+               !EFI_ERROR(mWpDirectLoadProbeResult) &&
+               mWpBootFF10Result == EFI_ACCESS_DENIED) {
+      Stage = "Image loads: BDS option or StartImage denied";
+    } else if (gWp81LoadObserved && EFI_ERROR(gWp81LoadStatus)) {
+      Stage = "Underlying UEFI LoadImage refused";
+    } else if (mWpDirectLoadProbeAttempted &&
+               EFI_ERROR(mWpDirectLoadProbeResult)) {
+      Stage = "Direct UEFI image-load probe refused";
+    } else {
+      Stage = "LoadImage succeeded; later stage failed";
+    }
+
+    OrderStatus = gRT->GetVariable(L"BootOrder", &gEfiGlobalVariableGuid,
+                                   NULL, &OrderBytes, Order);
+    if (!EFI_ERROR(OrderStatus)) {
+      OrderCount = OrderBytes / sizeof(Order[0]);
+      if (OrderCount != 0) OrderFirst = Order[0];
+    }
+#if defined(J250F_ADB_RAM_EXECUTION)
+    FbConStartScreen();
+    (VOID)SerialPortInitialize();
+#endif
+    Length = AsciiSPrint(Buffer, sizeof(Buffer),
+      "\r\nWP81 ESP-ONLY BDS DIAGNOSTICS\r\n"
+      "BootFF10: %a  Final: %r (0x%lx)\r\n"
+      "Loader: Windows/BOOT/EFI/BOOTMGFW.EFI\r\n"
+      "LoadImage hook installed: %a\r\n"
+      "LoadImage hook calls before probe: %u\r\n"
+      "Hook policy denied: %a\r\n"
+      "Exact donor trust installed: %a\r\n"
+      "Exact donor trust used: %a\r\n"
+      "Original Security2 status: %r\r\n"
+      "Original hook status: %r\r\n"
+      "Direct load-only test: %r (%a)\r\n"
+      "Failure stage: %a\r\n"
+      "BootOrder: %r, count=%u, first=%04x\r\n"
+      "Physical eMMC hidden only in UEFI.\r\n"
+      "Virtual ESP writes use RAM COW only.\r\n"
+      "Windows kernel eMMC MMIO NOT isolated.\r\n"
+      "Shutdown in 120 seconds.\r\n",
+      mWpBootFF10Attempted ? "YES" : "NO",
+      mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED,
+      (UINT64)(mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED),
+      gWp81LoadHookInstalled ? "YES" : "NO",
+      (UINT32)mWpHookCallsBeforeProbe,
+      gWp81LoadPolicyRejected ? "YES" : "NO",
+      mWpSecurity2HookInstalled ? "YES" : "NO",
+      mWpDonorTrustApplied ? "YES" : "NO",
+      mWpOriginalSecurityStatus,
+      mWpHookCallsBeforeProbe > 0 ? mWpHookStatusBeforeProbe : EFI_NOT_STARTED,
+      mWpDirectLoadProbeAttempted ? mWpDirectLoadProbeResult : EFI_NOT_STARTED,
+      mWpDirectLoadProbeAttempted ? "not executed" : "not attempted",
+      Stage, OrderStatus, (UINT32)OrderCount, OrderFirst);
+    (VOID)SerialPortWrite((UINT8 *)Buffer, Length);
+    if (gST != NULL && gST->ConOut != NULL) {
+      Print(L"\r\nWP81 BootFF10: %r; LoadImage: %r\r\n",
+            mWpBootFF10Attempted ? mWpBootFF10Result : EFI_NOT_STARTED,
+            gWp81LoadObserved ? gWp81LoadStatus : EFI_NOT_STARTED);
+    }
+    gBS->Stall(120000000);
+    gRT->ResetSystem(EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+    CpuDeadLoop();
+    return;
+  }
 
   // Locate Gop Protocol
   Status = gBS->HandleProtocol (gST->ConsoleOutHandle, &gEfiGraphicsOutputProtocolGuid, (VOID **)&GraphicsOutput);

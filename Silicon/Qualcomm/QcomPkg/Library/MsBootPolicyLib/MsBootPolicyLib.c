@@ -38,6 +38,32 @@ static BOOT_SEQUENCE  BootSequenceHUP[] = {
 static MS_BUTTON_SERVICES_PROTOCOL  *gButtonService = NULL;
 static EFI_IMAGE_LOAD               gSystemLoadImage;
 
+/* J250F WP81 ESP-only image-load trace. These are RAM-only diagnostics read
+   by DeviceBootManagerLib when BootFF10 returns; no UEFI policy is changed. */
+BOOLEAN    gWp81LoadObserved = FALSE;
+BOOLEAN    gWp81LoadPolicyRejected = FALSE;
+EFI_STATUS gWp81LoadStatus = EFI_NOT_READY;
+BOOLEAN    gWp81LoadHookInstalled = FALSE;
+UINTN      gWp81LoadCallCount = 0;
+STATIC EFI_GUID mWp81EspReadyGuid = {
+  0xd7f18d20, 0x49b1, 0x4e41, {0x8d,0x1a,0x91,0x46,0x6c,0x7e,0x37,0xa2}
+};
+
+STATIC EFI_GUID mWp81DiskNodeGuid = {
+  0xe7b5ba2a, 0xd586, 0x4df0,
+  {0x8e,0x28,0x2a,0xd5,0x5d,0x85,0x9c,0x81}
+};
+
+STATIC BOOLEAN IsWp81VirtualPath (EFI_DEVICE_PATH_PROTOCOL *Path) {
+  VENDOR_DEVICE_PATH *Vendor;
+  if (Path == NULL || Path->Type != HARDWARE_DEVICE_PATH ||
+      Path->SubType != HW_VENDOR_DP ||
+      Path->Length[0] != sizeof(VENDOR_DEVICE_PATH) ||
+      Path->Length[1] != 0) return FALSE;
+  Vendor = (VENDOR_DEVICE_PATH *)Path;
+  return CompareGuid(&Vendor->Guid, &mWp81DiskNodeGuid);
+}
+
 /**
  * GetButtonServiceProtocol
  *
@@ -71,21 +97,51 @@ LocalLoadImage (
   OUT EFI_HANDLE                *ImageHandle
   )
 {
-  if (NULL != DevicePath) {
-    if (!MsBootPolicyLibIsDevicePathBootable (DevicePath)) {
-      return EFI_ACCESS_DENIED;
+  EFI_STATUS Status;
+  VOID *EspMarker = NULL;
+  /*
+   * BootFF10's path can be expanded by BmGetNextLoadOptionBuffer(). A
+   * path-prefix comparison alone silently missed the previous error.
+   * Observe ALL image loads while our verified ESP-only marker is active,
+   * independently of how BDS represents the resolved device path.
+   * This is observation only; the same policy and original loader run.
+   */
+  BOOLEAN Wp81Trace = IsWp81VirtualPath(DevicePath) ||
+    (!EFI_ERROR(gBS->LocateProtocol(&mWp81EspReadyGuid,NULL,&EspMarker)) &&
+     EspMarker != NULL);
+  if (Wp81Trace) {
+    gWp81LoadCallCount++;
+    gWp81LoadObserved = TRUE;
+    gWp81LoadPolicyRejected = FALSE;
+    gWp81LoadStatus = EFI_NOT_READY;
+  }
+  if (DevicePath != NULL &&
+      !MsBootPolicyLibIsDevicePathBootable(DevicePath)) {
+    if (Wp81Trace) {
+      gWp81LoadPolicyRejected = TRUE;
+      gWp81LoadStatus = EFI_ACCESS_DENIED;
+      DEBUG ((DEBUG_ERROR,
+        "[WP81 LoadImage] platform device-path policy denied: %r\n",
+        gWp81LoadStatus));
     }
+    return EFI_ACCESS_DENIED;
   }
 
-  // Pass LoadImage call to system LoadImage;
-  return gSystemLoadImage (
-           BootPolicy,
-           ParentImageHandle,
-           DevicePath,
-           SourceBuffer,
-           SourceSize,
-           ImageHandle
-           );
+  Status = gSystemLoadImage (
+             BootPolicy,
+             ParentImageHandle,
+             DevicePath,
+             SourceBuffer,
+             SourceSize,
+             ImageHandle
+             );
+  if (Wp81Trace) {
+    gWp81LoadStatus = Status;
+    DEBUG ((DEBUG_ERROR,
+      "[WP81 LoadImage] underlying UEFI image loader returned: %r\n",
+      Status));
+  }
+  return Status;
 }
 
 /**
@@ -110,6 +166,7 @@ MsBootPolicyLibConstructor (
     OldTpl           = gBS->RaiseTPL (TPL_HIGH_LEVEL);
     gSystemLoadImage = gBS->LoadImage;
     gBS->LoadImage   = LocalLoadImage;
+    gWp81LoadHookInstalled = TRUE;
     gBS->Hdr.CRC32   = 0;
     Crc              = 0;
     gBS->CalculateCrc32 ((UINT8 *)&gBS->Hdr, gBS->Hdr.HeaderSize, &Crc);

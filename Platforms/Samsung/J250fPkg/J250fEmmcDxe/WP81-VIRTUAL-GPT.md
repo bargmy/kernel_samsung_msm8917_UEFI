@@ -1,71 +1,209 @@
-# Windows Phone 8.1: read-only virtual GPT prototype
+# J250F experimental ESP-only normal-BDS boot
 
-This implements **only the UEFI-side boot experiment** on the Samsung
-SM-J250F. It does NOT modify any partition or provide Windows storage
-isolation after `ExitBootServices`.
+**Hardware risk: experimental. UEFI isolation is not Windows kernel isolation.**
+No physical Samsung eMMC partitions may be written. The first test exposes
+**only virtual EFIESP**, with **volatile copy-on-write (COW) in UEFI RAM**.
+A virtual write does **not** modify the original EFIESP image inside
+userdata, and does **not** survive poweroff/reboot. It also does not stop
+later Windows kernel drivers from accessing the eMMC controller via MMIO.
+No MainOS or Data partitions are exposed; do not infer a kernel boot is
+impossible.
 
-## Why it is opt-in
+## Boot sequence
 
-The existing firmware publishes read-only physical eMMC and ext4. The
-`wp mount` command looks ONLY for the physical GPT **userdata** partition,
-requires the ext4 read-only marker, and then opens three **existing**
-read-only files under `/wp81`:
+1. J250F eMMC DXE initializes the existing read-only physical disk.
+2. It connects existing partition/ext4 drivers only to find GPT `userdata`.
+3. It reads **only** `/wp81/26.EFIESP.fat` (exactly 33,554,432 bytes)
+   and saves ext4 inode data for subsequent private reads.
+4. It disconnects the physical disk's public EFI Block I/O, Disk I/O and
+   GPT partition interfaces, failing closed if anything still remains.
+5. It publishes a CRC-checked protective MBR, primary/backup GPT and
+   exactly one FAT16 partition named `EFIESP`. Virtual FAT sector writes
+   are saved **only in lazily allocated 4 KiB RAM pages**. MBR, GPT and
+   unused sectors are immutable and return `EFI_WRITE_PROTECTED`.
+   The 32 MiB image itself remains read-only inside userdata.
+6. It confirms the topology and that the virtual FAT ESP contains
+   `\\Windows\\BOOT\\EFI\\BOOTMGFW.EFI` (the donor's actual ARM32
+   Windows Boot Manager). This skips `BOOTARM.EFI`, which otherwise
+   tries to locate `bootmgfw.efi` using a different path.
+7. It installs a UEFI `BootFF10` option pointing to that file and a
+   one-entry `BootOrder`. The platform has
+   `PcdEmuVariableNvModeEnable=TRUE`, so boot variables are emulated.
+8. It stops ADB and **returns successfully from DXE**. Project Mu
+   finishes DXE, signals EndOfDxe and enters its ordinary BDS boot flow.
+   BDS then attempts `BootFF10` through standard UEFI image loading.
 
-| Path in userdata ext4 | Required exact byte length | Virtual partition |
-| --- | ---: | --- |
-| `/wp81/26.EFIESP.fat` | 33,554,432 | `EFIESP` |
-| `/wp81/27.MainOS.ntfs` | 2,648,719,360 | `MainOS` |
-| `/wp81/28.Data.ntfs` | 4,552,916,992 | `Data` |
+During this ESP-only experiment, after the virtual ESP and BootFF10
+are successfully prepared, the driver publishes an **in-memory
+ESP-ready protocol**. The Qualcomm DeviceBootManagerLib checks this
+protocol rather than inferring the mode from the mutable BootOrder
+variable. If the marker is present, BDS **does not register** the generic
+Internal Storage and USB options; these instead run MsBootPolicy.efi
+and probe \EFI\Microsoft\Boot\bootmgfw.efi, a path absent from the donor.
+The DEBUG log prints the protocol marker status and BootOrder/BootFF10
+variable values so boot-order rewrites and firmware mismatches can be seen.
+Without the marker, normal default boot registration is unchanged.
 
-**The firmware cannot create or copy these files.** They must be staged by a
-separate, independently reviewed recovery/host process after backing up data.
-No files are currently assumed to exist. In particular, this change never
-formats userdata, changes the real GPT, flashes an image, or calls WriteBlocks.
+The driver intentionally does **not** call `LoadImage` or `StartImage`
+inside DXE entry. This matters because SecurityStubDxe can defer
+third-party EFI images loaded before EndOfDxe, returning
+`EFI_ACCESS_DENIED`.
 
-The virtual Block I/O device synthesizes a 512-byte-sector protective MBR,
-primary/backup GPT headers and entry arrays with valid CRC32 checksums,
-1 MiB-aligned partitions, and zero-filled gaps. Reads from virtual partitions
-are served from their file's `SetPosition`/`Read`. All virtual writes
-return `EFI_WRITE_PROTECTED`. Reads are limited to the exact file size and
-virtual disk length; file sizes and FAT/NTFS boot sectors are checked.
-`PartitionDxe` and the FAT driver can discover the synthetic ESP.
+## Fail-closed diagnostic fallback
 
-The generated GPT uses the BLU disk GUID printed by 7-Zip but synthesizes
-**different partition GUIDs** and 1 MiB-aligned addresses. It does NOT
-reproduce the complete BLU GPT or its unique partition IDs. BCD references
-to donor-specific GUIDs may therefore fail: provide the donor GPT metadata
-for a fidelity update rather than guessing. Optional DPP/PLAT partitions are
-not included in this initial boot test.
+If the private file staging, physical-interface hiding, virtual topology
+check, file existence check, or boot-option registration fails, the firmware
+does **not** return to BDS. Instead the existing ADB diagnostic loop
+remains available. This prevents normal BDS enumeration of the physical
+Samsung eMMC on a failed preparation path.
 
-## Commands (on new firmware image)
+## Requirements and limitations
 
-```sh
-adb -s J250F-UEFI shell wp status
-adb -s J250F-UEFI shell wp mount
-adb -s J250F-UEFI shell wp probe
-adb -s J250F-UEFI shell wp boot CONFIRM
-```
+- Only `/wp81/26.EFIESP.fat` must exist; no MainOS/Data files are needed.
+- This is **UEFI protocol hiding only**, not SDCC hardware access control.
+- Windows Boot Manager may still touch hardware or attempt later boot stages.
+  The absence of MainOS/Data is not a hard safety barrier.
+- UEFI disk and GPT structures are never written to physical eMMC.
+- The secure-image authentication policy is **not bypassed**.
+- The software must be validated in both ARM32 DEBUG and RELEASE builds
+  and tested on hardware with a backup/recovery path before relying on it.
 
-`wp mount` only installs a virtual disk when all three files exist, their
-sizes match, and the physical userdata is exposed as read-only ext4.
-`wp probe` attempts UEFI `LoadImage` for standard ARM32 Windows Boot
-Manager paths on the virtual ESP and immediately unloads it; **it does not
-execute the image or boot Windows**.
+## November ESP-only BDS error diagnostics
 
-`wp boot CONFIRM` explicitly calls `StartImage`. This is *dangerous*:
-Windows may take control of hardware and its own storage controller after
-ExitBootServices, with potential to write physical eMMC outside userdata.
-**Do not run it while physical storage is accessible to an untrusted Windows
-driver if retaining Samsung partitions is a hard safety requirement.**
-There is currently no Windows boot-critical virtual storage driver, no
-IOMMU/MMIO enforcement, and no physical eMMC isolation.
+The J250F reported `BootFF10 attempted: YES` followed by
+`EFI_ACCESS_DENIED` (0x8000000F). This proves that Project Mu attempted
+the boot option, but **not** whether Windows Boot Manager executed.
 
-Even when `wp probe` succeeds, this proves only that UEFI located and
-loaded an EFI image; it does not establish Windows bootability, compatibility
-of the BLU ACPI tables, NTFS reading, signing policies or BCD correctness.
+To avoid guessing, `MsBootPolicyLib.LocalLoadImage` now records only
+for the verified WP81 virtual-disk device-path GUID:
+- whether the BDS LoadImage policy wrapper was reached;
+- whether the platform path policy explicitly rejected the load;
+- the status returned by the underlying UEFI `LoadImage` call.
 
-## Validation
+The J250F framebuffer diagnostic screen now distinguishes denial by the
+platform path policy, denial by the underlying image loader, and a successful
+`LoadImage` followed by a failed `StartImage`/application return. No policy
+is disabled and the ESP and backing eMMC are still read-only.
+The `BootOrder` read now uses a bounded 64-entry buffer instead of a
+single `UINT16`; the previous `Buffer Too Small` line was a diagnostic
+buffer-sizing bug and did not itself explain the boot failure.
 
-Both DEBUG and RELEASE ARM32 firmware builds must pass in GitHub Actions
-before this prototype is merged into `main`. Mounting and booting require
-the actual phone and staged files; CI cannot prove those runtime conditions.
+Use a DEBUG build of this exact PR commit to read the framebuffer messages.
+The underlying cause of `EFI_ACCESS_DENIED` is still to be confirmed on hardware.
+
+## BDS EndOfDxe fix for Access Denied
+
+The J250F reported `BootFF10 attempted: YES`, `Policy rejected: NO`,
+then `EFI_ACCESS_DENIED`. In the Project Mu SecurityStubDxe source, the
+`Defer3rdPartyImageLoad` handler explicitly returns `EFI_ACCESS_DENIED`
+when loading a filesystem image **before** the EndOfDxe event. This Qcom
+BDS port did not previously signal EndOfDxe in its platform BDS entry.
+
+When (and only when) the verified in-memory WP81 ESP-ready marker exists,
+`DeviceBootManagerBdsEntry` now signals `gEfiEndOfDxeEventGroupGuid`
+**before** normal boot option dispatch. This is a phase-transition fix,
+not an authentication bypass. Windows Boot Manager is still loaded through
+Project Mu's normal `LoadImage` and signature policy. DEBUG reports the
+EndOfDxe signal in firmware logs. The status of this fix on real hardware
+remains **unverified** until the next test.
+
+## BDS `Write Protected` assertion, and writable RAM COW
+
+The handset subsequently asserted at `BdsEntry.c(798)` with
+`EFI_WRITE_PROTECTED`. That statement is **not a disk write**: it is the
+result of `SetVariable(BootOptionSupport,...)`. The prior EndOfDxe signal
+was being sent from `DeviceBootManagerBdsEntry`, **before** that volatile
+boot variable was initialized. Now the WP81-specific EndOfDxe signal is
+sent at the end of `DeviceBootManagerAfterConsole`, which runs after BDS
+variable initialization, but still before normal EFI image loading.
+
+The optional RAM COW is a **different change** that makes the *virtual*
+EFIESP appear writable to UEFI without writing anything physical:
+
+- The virtual disk exposes exactly one GPT partition, EFIESP, marked
+  writable to UEFI. There are no MainOS/Data or physical Samsung
+  partitions published on the virtual disk.
+- All writes must fit strictly inside the EFIESP partition range.
+  The virtual protective MBR, GPT headers and entry arrays, and unused
+  disk blocks reject writes with `EFI_WRITE_PROTECTED`.
+- On first write to any 4 KiB EFIESP page, that page is loaded from the
+  existing read-only ext4 image into RAM. Subsequent virtual reads merge
+  RAM modifications over the original image. Multi-block write failures
+  roll back all newly allocated pages before making partial changes.
+- RAM allocations are lazy and can use up to 32 MiB (plus pointer metadata);
+  allocation failure returns `EFI_OUT_OF_RESOURCES`. The data is lost on
+  restart or shutdown. There is **no persistent virtual-write feature**.
+- `J250fWpPrivateRead` is still the only underlying image I/O operation;
+  there is no ext4 write implementation and no physical eMMC write path.
+
+Before publishing the virtual FAT device, firmware runs a **fail-closed RAM
+COW self-test**: GPT/MBR writes must be rejected, an EFIESP sector must
+round-trip through volatile RAM, and its original contents must be restored.
+If this test fails, no virtual disk is published and BDS boot is not entered.
+
+**Limitation:** These are UEFI Block I/O boundaries only. Windows native
+Qualcomm eMMC/MMIO drivers would bypass them, so kernel-level eMMC
+isolation is still absent. Do not interpret the COW change as protecting
+Samsung partitions if the Windows kernel actually starts.
+
+## BootFF10 denied before tracing: source-level diagnostic
+
+Hardware reached normal BDS, but returned `EFI_ACCESS_DENIED` with
+`LoadImage hook seen: NO`. This does **not** prove the EFI image loader was
+never called: the previous trace was restricted to file device paths
+beginning with the vendor node, while BDS can expand or normalize paths.
+
+The updated `MsBootPolicyLib` traces all `LoadImage` calls while the
+verified, in-memory WP81 ESP-ready marker exists. The BDS error screen
+reports whether the hook was installed, the number of calls during the
+original boot attempt, and its original status.
+
+After a denied `BootFF10` attempt, BDS also executes **only**
+`gBS->LoadImage(..., BootOption->FilePath, ...)` and immediately unloads
+the image if loaded. It never calls `StartImage` for this diagnostic
+retry. This distinguishes EFI image-loading denial from an upstream
+BDS boot-option/variable failure, without altering image authentication or
+any physical eMMC write protection.
+
+A successful read-only load retry does **not** establish that it would be
+safe to run Windows or that the first-stage denial is resolved.
+
+## Experimental exact-donor BOOTMGFW.EFI trust exception
+
+**SECURITY TRADEOFF — this revision relaxes UEFI image authentication for
+one exact binary**. The phone's previous hardware result was:
+`BootFF10 = EFI_ACCESS_DENIED`, `direct LoadImage-only = EFI_ACCESS_DENIED`,
+`LoadImage hook installed = NO`. An ordinary image-verification handler
+may reject the donor Windows Phone boot manager when the platform firmware
+does not trust its original signing certificate, even after EndOfDxe.
+
+The ESP-only BDS path now explicitly decorates the UEFI Security2
+`FileAuthentication` callback **after** attempting the EndOfDxe event:
+- The original Security2 callback is always called first.
+- On authentication failure, the override may return success **only** when
+  the in-memory verified WP81 ESP-ready protocol exists, the device path
+  includes the virtual-disk vendor GUID and the exact
+  `\\Windows\\BOOT\\EFI\\BOOTMGFW.EFI` file path, the file size is
+  exactly 771152 bytes, and SHA-256 matches:
+  `c4fc8b29d3f4e9fbbff3696c12b6ed15acde219e6b8828fb465ed8318bfa6adf`.
+- The hash was computed from the supplied donor `26.EFIESP.fat` archive.
+  A different image, modified file, or different EFI path **is still denied**.
+- BDS diagnostics display whether the exact-image exception was installed,
+  whether it was actually exercised, and the original Security2 status.
+- The override is intentionally limited to the current boot session. It
+  does not write to Secure Boot variables, GPT, ext4, donor images, or
+  physical eMMC. The normal callback is left intact for other images.
+
+**This is not a Secure Boot-compliant production design.** The exception
+skips rejection of one hash-matched image without proving that it is
+trusted by the platform's configured Secure Boot keys. The proper
+long-term solution is trusted key provisioning or an appropriately signed
+boot manager.
+
+**Storage safety remains limited to UEFI protocols.** The original
+Samsung eMMC is concealed through UEFI and the virtual ESP uses volatile
+RAM COW, but BOOTMGFW.EFI and any subsequent native Windows code could
+access physical Qualcomm eMMC hardware directly through MMIO. Only the
+EFI partition is exposed, not MainOS/Data. This is not a hard guarantee
+that Windows code cannot touch physical storage. Maintain an independent
+recovery path; do not run recovery, reset or formatting utilities.
