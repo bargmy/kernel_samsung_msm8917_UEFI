@@ -15,6 +15,7 @@
   QcomPkg/QcomPkg.dec
 
 [LibraryClasses]
+  SynchronizationLib
   ArmLib
   BaseMemoryLib
   PcdLib

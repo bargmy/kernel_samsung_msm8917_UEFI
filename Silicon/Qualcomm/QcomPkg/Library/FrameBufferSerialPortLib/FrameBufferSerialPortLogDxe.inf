@@ -1,0 +1,34 @@
+[Defines]
+  INF_VERSION = 0x00010005
+  FILE_GUID = 244965e4-024d-4cda-9b58-308638f51150
+  BASE_NAME = FrameBufferSerialPortLogDxe
+  MODULE_TYPE = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS = SerialPortLib|DXE_CORE DXE_DRIVER UEFI_DRIVER UEFI_APPLICATION
+[Sources]
+  FrameBufferSerialPortLib.c
+[Packages]
+  ArmPkg/ArmPkg.dec
+  MdePkg/MdePkg.dec
+  QcomPkg/QcomPkg.dec
+[LibraryClasses]
+  SynchronizationLib
+  ArmLib
+  BaseMemoryLib
+  PcdLib
+  IoLib
+  HobLib
+  CompilerIntrinsicsLib
+  CacheMaintenanceLib
+  MemoryMapHelperLib
+  TimerLib
+[BuildOptions]
+  GCC:*_*_*_CC_FLAGS = -DJ250F_TEXT_LOG_DXE=1
+  CLANGPDB:*_*_*_CC_FLAGS = -DJ250F_TEXT_LOG_DXE=1
+[Pcd]
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferWidth
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferHeight
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferDelay
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferPixelsPerScanLine
+  gQcomPkgTokenSpaceGuid.PcdMipiFrameBufferAddress

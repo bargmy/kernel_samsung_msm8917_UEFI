@@ -1,7 +1,11 @@
 # J250F experimental ESP-only normal-BDS boot
 
 **Hardware risk: experimental. UEFI isolation is not Windows kernel isolation.**
-No physical Samsung eMMC partitions may be written. The first test exposes
+The optional DEBUG persistent text logger is now a narrowly scoped physical-write
+exception: only an explicitly preallocated `/wp81/uefi.log` may be appended.
+See [persistent logging](../Documentation/PERSISTENT_TEXT_LOG.md) for strict
+filesystem checks, setup, capture limits and the unverified hardware status.
+All other physical Samsung eMMC writes remain prohibited. The first test exposes
 **only virtual EFIESP**, with **volatile copy-on-write (COW) in UEFI RAM**.
 A virtual write does **not** modify the original EFIESP image inside
 userdata, and does **not** survive poweroff/reboot. It also does not stop

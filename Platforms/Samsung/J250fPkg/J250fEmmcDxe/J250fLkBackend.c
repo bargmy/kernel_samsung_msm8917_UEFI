@@ -93,6 +93,18 @@ STATIC int Pins(void *Ctx,int Active) {
 }
 STATIC const j250f_ops mOps={ R8,R16,R32,W8,W16,W32,Barrier,Delay,Clk,Rails,Pins };
 
+EFI_STATUS EFIAPI J250fLogBoardWrite(EFI_LBA Lba, CONST VOID *Buffer) {
+  int Result;
+  /* CACHE_CTRL must be zero: readback is not proof of power-loss durability
+     with the eMMC volatile cache enabled. Do not change card configuration. */
+  if (!Buffer || Lba > MAX_UINT32 || !mHost.card_ready ||
+      mHost.ext_csd[33] != 0)
+    return EFI_UNSUPPORTED;
+  Result = j250f_log_write_sector(&mHost, (UINT32)Lba, Buffer);
+  return Result == J250F_OK ? EFI_SUCCESS :
+         Result == J250F_E_TIMEOUT ? EFI_TIMEOUT : EFI_DEVICE_ERROR;
+}
+
 STATIC EFI_STATUS EFIAPI ReadMmc (VOID *Device, EFI_LBA Lba,
                                   UINTN Count, VOID *Buffer) {
   UINT8 *Dst=(UINT8*)Buffer;

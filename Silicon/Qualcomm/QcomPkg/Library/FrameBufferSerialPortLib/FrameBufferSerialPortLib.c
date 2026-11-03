@@ -5,6 +5,7 @@
 #include <Library/TimerLib.h>
 #include <Library/CacheMaintenanceLib.h>
 #include <Library/HobLib.h>
+#include <Library/PcdLib.h>
 #include <Library/MemoryMapHelperLib.h>
 #include <Library/SerialPortLib.h>
 
@@ -12,6 +13,40 @@
 #include <Resources/font5x12.h>
 
 #include <Library/FrameBufferSerialPortLib.h>
+#include <Library/J250fTextLog.h>
+
+STATIC J250F_TEXT_LOG *mTextLog;
+
+VOID EFIAPI FbConAttachTextLog(J250F_TEXT_LOG *Log)
+{
+  mTextLog = Log;
+}
+
+STATIC VOID CaptureText(UINT8 *Buffer, UINTN Length)
+{
+#ifdef J250F_TEXT_LOG_DXE
+  /* DXE core relocates the HOB list. Never cache its pre-relocation copy. */
+  {
+    EFI_GUID Guid = J250F_TEXT_LOG_GUID;
+    VOID *Hob = GetFirstGuidHob(&Guid);
+    mTextLog = NULL;
+    if (Hob != NULL && GET_GUID_HOB_DATA_SIZE(Hob) == sizeof(*mTextLog))
+      mTextLog = GET_GUID_HOB_DATA(Hob);
+  }
+#endif
+  if (mTextLog == NULL || mTextLog->Magic != J250F_TEXT_LOG_MAGIC ||
+      mTextLog->Stopped || (mTextLog->SuppressSerial && mTextLog->SuppressCpu == ArmReadMpidr()) ||
+      mTextLog->Head >= J250F_TEXT_LOG_BYTES || mTextLog->Tail >= J250F_TEXT_LOG_BYTES)
+    return;
+  J250fTextAppend(mTextLog, Buffer, Length);
+}
+
+STATIC VOID FlushText(VOID)
+{
+  if (mTextLog != NULL && mTextLog->Magic == J250F_TEXT_LOG_MAGIC &&
+      !mTextLog->Stopped && mTextLog->Flush != NULL)
+    mTextLog->Flush();
+}
 
 UINTN delay = FixedPcdGet32(PcdMipiFrameBufferDelay);
 
@@ -321,12 +356,15 @@ SerialPortWrite(IN UINT8 *Buffer, IN UINTN NumberOfBytes)
   if (InterruptState)
     ArmDisableInterrupts();
 
-  while (Buffer < Final) {
+  CaptureText(Buffer, NumberOfBytes);
+  while (m_Initialized && Buffer < Final) {
     FbConPutCharWithFactor(*Buffer++, FBCON_COMMON_MSG, SCALE_FACTOR);
   }
 
   if (InterruptState)
     ArmEnableInterrupts();
+  if (InterruptState)
+    FlushText();
   return NumberOfBytes;
 }
 
@@ -343,7 +381,8 @@ SerialPortWriteCritical(IN UINT8 *Buffer, IN UINTN NumberOfBytes)
 
   m_Color.Foreground = FB_BGRA8888_YELLOW;
 
-  while (Buffer < Final) {
+  CaptureText(Buffer, NumberOfBytes);
+  while (m_Initialized && Buffer < Final) {
     FbConPutCharWithFactor(*Buffer++, FBCON_COMMON_MSG, SCALE_FACTOR);
   }
 
@@ -351,6 +390,8 @@ SerialPortWriteCritical(IN UINT8 *Buffer, IN UINTN NumberOfBytes)
 
   if (InterruptState)
     ArmEnableInterrupts();
+  if (InterruptState)
+    FlushText();
   return NumberOfBytes;
 }
 

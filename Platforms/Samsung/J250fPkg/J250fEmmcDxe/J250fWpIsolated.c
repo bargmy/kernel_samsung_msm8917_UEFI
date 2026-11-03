@@ -2,7 +2,8 @@
   ESP-only Windows Phone 8.1 virtual GPT for normal BDS.
   EFI-visible storage only: EFIESP. No physical eMMC handles
   remain after a successful mount. Only EFIESP can change through a
-  volatile RAM COW overlay. No physical eMMC writes are performed.
+  volatile RAM COW overlay. The optional DEBUG logger can append only to a
+  validated preallocated /wp81/uefi.log; virtual disk writes remain RAM-only.
   Windows kernel MMIO is still unrestricted after ExitBootServices.
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/

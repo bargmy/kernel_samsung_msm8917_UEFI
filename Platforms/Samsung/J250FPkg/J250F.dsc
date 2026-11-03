@@ -31,6 +31,9 @@
   USE_UART                       = 0
 
 [BuildOptions.common]
+!if $(TARGET) == DEBUG && $(USE_UART) == 0
+  GCC:DEBUG_*_*_CC_FLAGS = -DJ250F_PERSISTENT_TEXT_LOG=1
+!endif
   *_*_*_CC_FLAGS = -DDISPLAY_USES_RGBA=$(DISPLAY_USES_RGBA)
   # ADB RAM applications are explicitly permitted in this development build.
   # RELEASE and image loads with a device path retain normal verification.
@@ -94,3 +97,10 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdConOutRow|50
 
 !include MSM8917Pkg/MSM8917Pkg.dsc.inc
+
+# Keep SEC on the explicitly attached queue; only DXE can discover HOBs.
+# Runtime drivers deliberately excluded: this buffer dies at ExitBootServices.
+!if $(TARGET) == DEBUG && $(USE_UART) == 0
+[LibraryClasses.common.DXE_CORE, LibraryClasses.common.DXE_DRIVER, LibraryClasses.common.UEFI_DRIVER, LibraryClasses.common.UEFI_APPLICATION]
+  SerialPortLib|QcomPkg/Library/FrameBufferSerialPortLib/FrameBufferSerialPortLogDxe.inf
+!endif

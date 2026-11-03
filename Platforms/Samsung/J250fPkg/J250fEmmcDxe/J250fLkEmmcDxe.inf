@@ -16,6 +16,7 @@
   J250fExt4Commands.c
   J250fWpIsolated.c
   J250fWpPrivate.c
+  J250fTextLogDxe.c
   J250fGopDiag.c
   J250fDeepDebug.c
   J250fEmmcDebug.c
@@ -23,10 +24,14 @@
   Core/j250f_emmc.c
   Core/j250f_board.c
 [Packages]
+  ArmPkg/ArmPkg.dec
   MdePkg/MdePkg.dec
   QcomPkg/QcomPkg.dec
   J250fPkg/J250fPkg.dec
 [LibraryClasses]
+  SynchronizationLib
+  ArmLib
+  HobLib
   UefiDriverEntryPoint
   J250fGopSupportLib
   UefiBootServicesTableLib
@@ -52,6 +57,8 @@
   gEfiPartitionInfoProtocolGuid ## CONSUMES
   gEfiDevicePathProtocolGuid   ## PRODUCES
 [Guids]
+  gEfiEventReadyToBootGuid
+  gEfiEventExitBootServicesGuid
   gEfiFileInfoGuid
   gEfiGlobalVariableGuid
 [Depex]

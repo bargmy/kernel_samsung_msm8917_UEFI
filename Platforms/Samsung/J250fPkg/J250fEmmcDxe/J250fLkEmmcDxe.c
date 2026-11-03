@@ -19,6 +19,7 @@ extern VOID EFIAPI J250fGopDiagRecord(
   EFI_STATUS PostStatus, BOOLEAN Attempted);
 
 #include "J250fLkPlatform.h"
+extern EFI_STATUS EFIAPI J250fLogBoardWrite(EFI_LBA Lba, CONST VOID *Buffer);
 #include "J250fPowerProtocol.h"
 #include <Library/IoLib.h>
 #include "J250fUsbGadget.h"
@@ -59,6 +60,18 @@ static VOID Leave (VOID) {
   EFI_TPL Previous = gBS->RaiseTPL (TPL_NOTIFY);
   mDisk.Busy = FALSE;
   gBS->RestoreTPL (Previous);
+}
+
+/* Private logger uses the same serialization as physical reads, including
+   reads retained after public BlockIo removal. No write protocol is exposed. */
+EFI_STATUS EFIAPI J250fLogBackendWrite(EFI_LBA Lba, CONST VOID *Buffer) {
+  EFI_STATUS Status;
+  if (!mPublished) return EFI_NO_MEDIA;
+  if (Lba > mDisk.Media.LastBlock || !Buffer) return EFI_INVALID_PARAMETER;
+  if (!Enter()) return EFI_NOT_READY;
+  Status = J250fLogBoardWrite(Lba, Buffer);
+  Leave();
+  return Status;
 }
 
 static EFI_STATUS EFIAPI LkReset (

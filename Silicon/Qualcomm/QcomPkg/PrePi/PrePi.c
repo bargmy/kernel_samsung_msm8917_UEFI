@@ -23,6 +23,7 @@
 #include "PrePi.h"
 
 #include <Library/MemoryMapHelperLib.h>
+#include <Library/J250fTextLog.h>
 
 #include <Guid/DxeMemoryProtectionSettings.h>
 #include <Guid/MmMemoryProtectionSettings.h>
@@ -123,6 +124,20 @@ PrePiMain (
               (VOID *)StacksBase // The top of the UEFI Memory is reserved for the stacks
               );
   PrePeiSetHobList (HobList);
+
+#ifdef J250F_PERSISTENT_TEXT_LOG
+  {
+    EFI_GUID LogGuid = J250F_TEXT_LOG_GUID;
+    J250F_TEXT_LOG *Log = BuildGuidHob(&LogGuid, sizeof(J250F_TEXT_LOG));
+    if (Log != NULL) {
+      ZeroMem(Log, sizeof(*Log));
+      Log->Magic = J250F_TEXT_LOG_MAGIC;
+      FbConAttachTextLog(Log);
+    } else {
+      DEBUG((DEBUG_ERROR, "UEFI LOG: early capture buffer allocation failed\n"));
+    }
+  }
+#endif
 
   // Initialize MMU and Memory HOBs (Resource Descriptor HOBs)
   Status = MemoryPeim (UefiMemoryBase, UefiMemorySize);

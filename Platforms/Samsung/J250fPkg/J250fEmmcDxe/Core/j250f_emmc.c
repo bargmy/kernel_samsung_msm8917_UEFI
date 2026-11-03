@@ -547,6 +547,43 @@ int j250f_read_blocks(j250f_emmc *h,uint32_t sector,uint32_t count,void *buf)
     return J250F_OK;
 }
 
+/* Private log-sector primitive. This deliberately does not alter the public
+ * read-only BlockIo policy or retry a write whose completion is uncertain. */
+int j250f_log_write_sector(j250f_emmc *h,uint32_t sector,const void *buffer)
+{
+    uint32_t rsp=0, status;
+    unsigned elapsed;
+    uint8_t verify[J250F_BLOCK_SIZE];
+    int rc;
+    if (!h || !buffer) return J250F_E_ARGUMENT;
+    if (!h->host_ready || !h->card_ready) return J250F_E_NOT_READY;
+    if (!h->high_capacity) return J250F_E_UNSUPPORTED;
+    if (!h->capacity_sectors || sector>=h->capacity_sectors)
+        return J250F_E_RANGE;
+    rc=command(h,24,sector,RSP_48,(uint8_t *)(uintptr_t)buffer,1,
+               J250F_BLOCK_SIZE,&rsp);
+    if (rc) return rc;
+    if (rsp & ((1u<<19)|(1u<<22))) return J250F_E_PROTOCOL;
+    /* R1b programming may continue after the data transfer completes. Require
+     * both READY_FOR_DATA and TRAN; never issue another write on a timeout. */
+    for (elapsed=0;elapsed<1000000;elapsed+=1000) {
+        rc=short_cmd(h,13,h->rca<<16,RSP_48,&status);
+        if (rc) return rc;
+        if ((status&(1u<<8)) && ((status>>9)&0xFu)==4u) break;
+        pause_us(h,1000);
+    }
+    if (elapsed>=1000000) return J250F_E_TIMEOUT;
+    rc=j250f_read_blocks(h,sector,1,verify);
+    if (rc) return rc;
+    {
+        const uint8_t *source=(const uint8_t *)buffer;
+        unsigned i;
+        for (i=0;i<J250F_BLOCK_SIZE;i++)
+            if (verify[i]!=source[i]) return J250F_E_IO;
+    }
+    return J250F_OK;
+}
+
 void j250f_allow_writes(j250f_emmc *h,int allow)
 {
     (void)allow;

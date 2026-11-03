@@ -1,5 +1,7 @@
 /** @file
   Private read-only userdata ext4 backing for the WP81 virtual disk.
+  Optional DEBUG logging has a separate, bounded preallocated-file writer;
+  the backing interface and general filesystem remain read-only.
   The physical eMMC EFI protocols are removed only after all inodes are staged.
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
@@ -11,6 +13,7 @@
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/UefiBootServicesTableLib.h>
+#include <Library/DebugLib.h>
 
 /* Reuse the exact ext4 parser from the working read-only driver in this
    module, WITHOUT publishing its SimpleFileSystem protocol. Its functions
@@ -40,6 +43,8 @@ typedef struct {
   BOOLEAN Concealed;
 } WP_BACKING;
 STATIC WP_BACKING mBacking;
+
+#include "J250fLogStorage.inc"
 
 STATIC BOOLEAN PathOnPhysical (EFI_DEVICE_PATH_PROTOCOL *Path) {
   VENDOR_DEVICE_PATH *Vendor;
@@ -175,6 +180,9 @@ Done:
 
 VOID EFIAPI J250fWpPrivateRelease (VOID) {
   if (mBacking.Concealed) return; /* retained backend must stay alive */
+  mLogMapped = FALSE;
+  mLogNext = LOG_SECTORS;
+  ZeroMem(mLogLbas, sizeof(mLogLbas));
   if (mBacking.Ext4.ScratchAllocation)
     gBS->FreePool(mBacking.Ext4.ScratchAllocation);
   ZeroMem(&mBacking, sizeof(mBacking));
@@ -241,6 +249,8 @@ EFI_STATUS EFIAPI J250fWpPrivateStage (VOID) {
     }
   }
   mBacking.Staged = TRUE;
+  Status = LogStage(&mBacking.Ext4, &Folder);
+  DEBUG((DEBUG_WARN, "UEFI LOG /wp81/uefi.log preparation: %r\n", Status));
   return EFI_SUCCESS;
 Fail:
   J250fWpPrivateRelease();
@@ -295,5 +305,7 @@ EFI_STATUS EFIAPI J250fWpPrivateConceal (VOID) {
              &gEfiDevicePathProtocolGuid, mBacking.RawPath, NULL);
   if (EFI_ERROR(Status)) return Status;
   mBacking.Concealed = TRUE;
-  return NoPublicDisks();
+  Status = NoPublicDisks();
+  if (!EFI_ERROR(Status)) LogStart();
+  return Status;
 }

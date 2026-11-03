@@ -119,6 +119,8 @@ int j250f_init_host(j250f_emmc *h, const j250f_ops *ops, void *context);
 int j250f_init_card(j250f_emmc *h);
 int j250f_identify_card(j250f_emmc *h);
 int j250f_read_blocks(j250f_emmc *h, uint32_t sector, uint32_t count, void *buf);
+/* Private platform log primitive; does not enable public BlockIo writes. */
+int j250f_log_write_sector(j250f_emmc *h, uint32_t sector, const void *buffer);
 /* Explicitly opt in to writing: zero by default to prevent accidents. */
 void j250f_allow_writes(j250f_emmc *h, int allow);
 int j250f_write_blocks(j250f_emmc *h, uint32_t sector, uint32_t count, const void *buf);
