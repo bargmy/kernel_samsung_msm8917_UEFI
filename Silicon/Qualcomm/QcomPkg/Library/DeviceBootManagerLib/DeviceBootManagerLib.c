@@ -732,6 +732,27 @@ DeviceBootManagerBdsEntry (
   VOID
   )
 {
+  /*
+   * The J250F WP81 loader runs Project Mu's regular BDS after DXE. The
+   * SecurityStubDxe Defer3rdPartyImageLoad handler must see EndOfDxe
+   * BEFORE any filesystem-based Boot#### image is loaded. Without it,
+   * security policy returns EFI_ACCESS_DENIED even for a valid signed
+   * ARM32 Bootmgfw.efi (this is not a signature-authentication bypass).
+   *
+   * Only the verified ESP-only boot mode triggers this platform-specific
+   * transition; no change to regular QcomPkg boot mode or physical disks.
+   */
+  {
+    VOID *EspReady = NULL;
+    EFI_STATUS ReadyStatus = gBS->LocateProtocol(
+                               &mWpEspReadyGuid, NULL, &EspReady);
+    if (!EFI_ERROR(ReadyStatus) && EspReady != NULL) {
+      DEBUG ((DEBUG_ERROR,
+        "[WP81 BDS] Signaling EndOfDxe before filesystem EFI image load.\n"));
+      EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
+    }
+  }
+
   EfiEventGroupSignal (&gMsStartOfBdsNotifyGuid);
 
   //
