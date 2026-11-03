@@ -1,8 +1,9 @@
 /** @file
   ESP-only Windows Phone 8.1 virtual GPT for normal BDS.
   EFI-visible storage only: EFIESP. No physical eMMC handles
-  remain after a successful mount. All virtual writes fail protected.
-  This does NOT restrict Windows MMIO access after ExitBootServices.
+  remain after a successful mount. Only EFIESP can change through a
+  volatile RAM COW overlay. No physical eMMC writes are performed.
+  Windows kernel MMIO is still unrestricted after ExitBootServices.
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 #include <Uefi.h>
@@ -24,6 +25,9 @@
 #define WP_GPT_ENTRIES 128U
 #define WP_ENTRY_BLOCKS 32U
 #define WP_READ_MAX 32768U
+#define WP_COW_PAGE_BYTES 4096U
+#define WP_COW_SECTORS (WP_COW_PAGE_BYTES / WP_SECTOR)
+#define WP_COW_PAGE_COUNT (33554432U / WP_COW_PAGE_BYTES)
 #define WP_SMALLER(A,B) ((A) < (B) ? (A) : (B))
 
 extern EFI_STATUS EFIAPI J250fWpPrivateStage (VOID);
@@ -56,6 +60,9 @@ typedef struct {
   UINT8 Backup[WP_SECTOR];
 } WP_DISK;
 STATIC WP_DISK mWp;
+/* 8192 lazy 4KiB RAM pages cover only the virtual 32MiB EFIESP. */
+STATIC UINT8 *mWpCowPages[WP_COW_PAGE_COUNT];
+STATIC BOOLEAN mWpCowNew[WP_COW_PAGE_COUNT];
 STATIC EFI_HANDLE mImageHandle;
 /* Contract with QcomPkg DeviceBootManagerLib: published only after BDS
    BootFF10 is installed and ESP-only virtual topology has been verified.
@@ -100,10 +107,71 @@ STATIC EFI_STATUS EFIAPI WpReset (EFI_BLOCK_IO_PROTOCOL *This,
   (VOID)Verify;
   return This == &mWp.Io && mWp.Active ? EFI_SUCCESS : EFI_NO_MEDIA;
 }
+/* No physical write callbacks exist in this driver. Reject GPT/MBR and
+   all addresses outside the virtual ESP. Prestage entire request in RAM,
+   reverting new allocations on failure before changing visible sectors. */
 STATIC EFI_STATUS EFIAPI WpWrite (EFI_BLOCK_IO_PROTOCOL *This,
     UINT32 MediaId, EFI_LBA Lba, UINTN Bytes, VOID *Buffer) {
-  (VOID)MediaId;(VOID)Lba;(VOID)Bytes;(VOID)Buffer;
-  return This == &mWp.Io ? EFI_WRITE_PROTECTED : EFI_INVALID_PARAMETER;
+  EFI_LBA First, Sector;
+  UINTN Sectors, FirstPage, LastPage, Page, Remaining;
+  CONST UINT8 *Src;
+  EFI_STATUS Status = EFI_SUCCESS;
+  if (This != &mWp.Io || !mWp.Active || !mWp.Isolated)
+    return EFI_NO_MEDIA;
+  if (MediaId != mWp.Media.MediaId) return EFI_MEDIA_CHANGED;
+  if (!Bytes) return EFI_SUCCESS;
+  if (!Buffer) return EFI_INVALID_PARAMETER;
+  if (Bytes % WP_SECTOR) return EFI_BAD_BUFFER_SIZE;
+  Sectors = Bytes / WP_SECTOR;
+  if (Lba > mWp.Last || (UINT64)(Sectors - 1) > mWp.Last - Lba)
+    return EFI_INVALID_PARAMETER;
+  First = mWp.Image[0].First;
+  if (Lba < First || Lba - First >= mWp.Image[0].Sectors ||
+      (UINT64)Sectors > mWp.Image[0].Sectors - (Lba - First))
+    return EFI_WRITE_PROTECTED;
+  Sector = Lba - First;
+  FirstPage = (UINTN)(Sector / WP_COW_SECTORS);
+  LastPage = (UINTN)((Sector + Sectors - 1) / WP_COW_SECTORS);
+  if (LastPage >= WP_COW_PAGE_COUNT) return EFI_INVALID_PARAMETER;
+  for (Page = FirstPage; Page <= LastPage; Page++) {
+    UINT8 *NewPage = NULL;
+    if (mWpCowPages[Page]) continue;
+    Status = gBS->AllocatePool(EfiBootServicesData, WP_COW_PAGE_BYTES,
+                                (VOID **)&NewPage);
+    if (EFI_ERROR(Status)) goto Rollback;
+    Status = J250fWpPrivateRead(0, (UINT64)Page * WP_COW_PAGE_BYTES,
+                                WP_COW_PAGE_BYTES, NewPage);
+    if (EFI_ERROR(Status)) {
+      gBS->FreePool(NewPage);
+      goto Rollback;
+    }
+    mWpCowPages[Page] = NewPage;
+    mWpCowNew[Page] = TRUE;
+  }
+  Remaining = Sectors;
+  Src = (CONST UINT8 *)Buffer;
+  while (Remaining) {
+    UINTN Slot = (UINTN)(Sector / WP_COW_SECTORS);
+    UINTN InPage = (UINTN)(Sector % WP_COW_SECTORS);
+    UINTN Chunk = WP_SMALLER(Remaining, WP_COW_SECTORS - InPage);
+    CopyMem(mWpCowPages[Slot] + InPage * WP_SECTOR, Src,
+            Chunk * WP_SECTOR);
+    Src += Chunk * WP_SECTOR;
+    Sector += Chunk;
+    Remaining -= Chunk;
+  }
+  for (Page = FirstPage; Page <= LastPage; Page++)
+    mWpCowNew[Page] = FALSE;
+  return EFI_SUCCESS;
+Rollback:
+  for (Page = FirstPage; Page <= LastPage; Page++) {
+    if (mWpCowNew[Page]) {
+      gBS->FreePool(mWpCowPages[Page]);
+      mWpCowPages[Page] = NULL;
+      mWpCowNew[Page] = FALSE;
+    }
+  }
+  return Status;
 }
 STATIC EFI_STATUS EFIAPI WpFlush (EFI_BLOCK_IO_PROTOCOL *This) {
   return This == &mWp.Io && mWp.Active ? EFI_SUCCESS : EFI_NO_MEDIA;
@@ -134,6 +202,19 @@ STATIC EFI_STATUS EFIAPI WpRead (EFI_BLOCK_IO_PROTOCOL *This,
         Status = J250fWpPrivateRead((UINT32)I,
                 (Lba - File->First) * WP_SECTOR, Chunk * WP_SECTOR, Out);
         if (EFI_ERROR(Status)) return Status;
+        /* Merge volatile changed sectors after reading the original image. */
+        {
+          UINTN S;
+          UINT64 SectorOff = Lba - File->First;
+          for (S = 0; S < Chunk; S++) {
+            UINTN Index = (UINTN)((SectorOff + S) / WP_COW_SECTORS);
+            UINT8 *Page = mWpCowPages[Index];
+            if (Page)
+              CopyMem(Out + S * WP_SECTOR,
+                      Page + ((SectorOff + S) % WP_COW_SECTORS) * WP_SECTOR,
+                      WP_SECTOR);
+          }
+        }
         Out += Chunk * WP_SECTOR;
         Lba += Chunk;
         Sectors -= Chunk;
@@ -225,7 +306,7 @@ STATIC EFI_STATUS MakeGpt (VOID) {
 }
 
 /* A valid view has one virtual physical disk and exactly one logical GPT
-   partition handles, all marked read-only. No other Block I/O/PartitionInfo
+   partition handles, writable only via RAM COW. No other Block I/O/PartitionInfo
    handles may be present, even if they are not from eMMC. */
 STATIC EFI_STATUS VerifyTopology (UINTN *Disks, UINTN *Partitions) {
   EFI_HANDLE *Handles = NULL;
@@ -243,7 +324,7 @@ STATIC EFI_STATUS VerifyTopology (UINTN *Disks, UINTN *Partitions) {
                      &gEfiBlockIoProtocolGuid,(VOID **)&Io)) ||
         EFI_ERROR(gBS->HandleProtocol(Handles[I],
                      &gEfiDevicePathProtocolGuid,(VOID **)&Path)) ||
-        !Io || !Io->Media || !PathIsVirtual(Path) || !Io->Media->ReadOnly) {
+        !Io || !Io->Media || !PathIsVirtual(Path) || Io->Media->ReadOnly) {
       Status=EFI_ACCESS_DENIED;goto Done;
     }
     if (!Io->Media->LogicalPartition) {
@@ -306,7 +387,7 @@ STATIC EFI_STATUS WpMount (VOID) {
   mWp.Isolated=TRUE;
   mWp.Media.MediaId=1;
   mWp.Media.MediaPresent=TRUE;
-  mWp.Media.ReadOnly=TRUE;
+  mWp.Media.ReadOnly=FALSE;
   mWp.Media.RemovableMedia=FALSE;
   mWp.Media.LogicalPartition=FALSE;
   mWp.Media.WriteCaching=FALSE;
@@ -464,7 +545,7 @@ BOOLEAN EFIAPI J250fWpCommand (CONST CHAR8 *Cmd,CHAR8 *Out,
   if (AsciiStrCmp(Cmd,"wp")==0 || AsciiStrCmp(Cmd,"wp status")==0) {
     *Used=AsciiSPrint(Out,Cap,
       "WP81 virtual disk: %a; UEFI eMMC concealed: %a\r\n"
-      "ESP-only BDS test: EFIESP is the sole published partition.\r\n"
+      "ESP-only BDS: EFIESP RAM-COW writable, reboot discards changes.\r\n"
       "No Windows kernel MMIO isolation.\r\n"
       "Commands: wp mount | wp verify | wp probe | wp boot CONFIRM\r\n",
       mWp.Active ? "MOUNTED" : "not mounted",
