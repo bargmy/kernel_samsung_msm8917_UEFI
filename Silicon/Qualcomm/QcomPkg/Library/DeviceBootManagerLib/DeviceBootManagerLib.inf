@@ -58,6 +58,7 @@
   UpdateFacsHardwareSignatureLib
 
 [Guids]
+  gEfiEndOfDxeEventGroupGuid
   gUefiShellFileGuid
   gMsStartOfBdsNotifyGuid
   gDfciStartOfBdsNotifyGuid
