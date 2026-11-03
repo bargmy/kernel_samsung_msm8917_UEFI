@@ -136,6 +136,11 @@ EFIESP appear writable to UEFI without writing anything physical:
 - `J250fWpPrivateRead` is still the only underlying image I/O operation;
   there is no ext4 write implementation and no physical eMMC write path.
 
+Before publishing the virtual FAT device, firmware runs a **fail-closed RAM
+COW self-test**: GPT/MBR writes must be rejected, an EFIESP sector must
+round-trip through volatile RAM, and its original contents must be restored.
+If this test fails, no virtual disk is published and BDS boot is not entered.
+
 **Limitation:** These are UEFI Block I/O boundaries only. Windows native
 Qualcomm eMMC/MMIO drivers would bypass them, so kernel-level eMMC
 isolation is still absent. Do not interpret the COW change as protecting
